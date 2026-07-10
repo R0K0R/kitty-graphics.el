@@ -472,6 +472,24 @@ typst-show fragment="$integral_(-oo)^(+oo) e^(-x^2) dif x = sqrt(pi)$":
         echo "png=$png"; \
         [ -n "$png" ] && xdg-open "$png"
 
+# --- Headless chafa checks --------------------------------------------------
+
+# Show resolved chafa binary (nil when not on PATH)
+chafa-encoder:
+    {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(princ (format "%S\n" (kitty-gfx--chafa-resolve)))'
+
+# Encode tests/test-image.png with chafa headlessly, report payload size.
+# Override format with: just chafa-encode symbols
+chafa-encode format="sixel":
+    {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(progn \
+        (setq kitty-gfx-debug t \
+              kitty-gfx-chafa-format (quote {{format}})) \
+        (princ (format "format=%s binary=%S\n" kitty-gfx-chafa-format (kitty-gfx--chafa-resolve))) \
+        (let ((d (kitty-gfx--chafa-encode "tests/test-image.png" 20 10))) \
+          (princ (format "bytes=%s\n" (and d (length d))))))'
+    @echo "--- log tail ---"
+    @tail -3 /tmp/kitty-gfx.log 2>/dev/null || true
+
 # --- Headless sixel checks --------------------------------------------------
 
 # Show resolved sixel encoder (auto-detect: img2sixel > magick > convert)
@@ -507,6 +525,25 @@ sixel-timeout-test:
     @echo "--- log tail ---"
     @tail -3 /tmp/kitty-gfx.log 2>/dev/null || true
     @rm -f /tmp/kgfx-fake-encoder.sh
+
+# --- Interactive chafa tests (run inside a chafa-capable terminal) ----------
+
+# Open test-image.png with chafa backend forced in Sixel mode (foot/Konsole/mintty/WezTerm)
+test-chafa-image:
+    @echo ">> Run inside foot, Konsole, mintty, mlterm, or WezTerm."
+    TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
+        --eval "(setq kitty-gfx-debug t kitty-gfx-preferred-protocol 'chafa)" \
+        --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
+        tests/test-image.png
+
+# Open test-image.png with chafa backend forced in Unicode symbol mode.
+# Useful as a fallback in terminals without Sixel support.
+test-chafa-symbols:
+    @echo ">> Unicode-symbol fallback; works in any terminal that supports ANSI colors."
+    TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
+        --eval "(setq kitty-gfx-debug t kitty-gfx-preferred-protocol 'chafa kitty-gfx-chafa-format 'symbols)" \
+        --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
+        tests/test-image.png
 
 # --- Interactive sixel tests (run inside a sixel-capable terminal) ----------
 

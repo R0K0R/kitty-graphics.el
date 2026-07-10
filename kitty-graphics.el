@@ -638,7 +638,7 @@ placeholder mode cannot encode it" image-id))
 (defvar kitty-graphics-mode)
 
 (defvar kitty-gfx--active-backend nil
-  "Symbol identifying the active graphics backend: `kitty' or `sixel'.
+  "Symbol identifying the active graphics backend: `kitty', `sixel' or `chafa'.
 Set by `kitty-gfx--detect-protocol'.")
 
 (defvar kitty-gfx--backends nil
@@ -674,11 +674,12 @@ cached."
 
 (defcustom kitty-gfx-preferred-protocol 'auto
   "Preferred graphics protocol to use.
-Choices: `auto' (try Kitty first, then Sixel), `kitty', or `sixel'.
-Default is `auto'."
-  :type '(choice (const :tag "Auto-detect (Kitty → Sixel)" auto)
+Choices: `auto' (try Kitty first, then Sixel, then chafa), `kitty',
+`sixel', or `chafa'.  Default is `auto'."
+  :type '(choice (const :tag "Auto-detect (Kitty → Sixel → chafa)" auto)
                  (const :tag "Kitty graphics protocol" kitty)
-                 (const :tag "Sixel protocol" sixel))
+                 (const :tag "Sixel protocol" sixel)
+                 (const :tag "Chafa (Sixel or symbols)" chafa))
   :group 'kitty-graphics)
 
 (defcustom kitty-gfx-sixel-encoder-program nil
@@ -736,6 +737,39 @@ upstream scroll artifact: tmux's cell buffer is not pixel-aware, so
 images may persist after scrolling until the affected cells are
 overwritten."
   :type 'boolean
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-chafa-program nil
+  "Program used to encode images via chafa.
+When nil, auto-detect `chafa' on PATH.  When set to a string, use
+that program directly."
+  :type '(choice (const :tag "Auto-detect" nil) string)
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-chafa-format 'sixel
+  "Output format for the chafa backend.
+`sixel' forces Sixel output.  `symbols' forces Unicode character art.
+`kitty' and `iterm' force the respective graphics protocols.  `auto'
+lets chafa probe the terminal, which may interact poorly with Emacs'
+input stream and is therefore not recommended."
+  :type '(choice (const :tag "Sixel" sixel)
+                 (const :tag "Unicode symbols" symbols)
+                 (const :tag "Kitty graphics" kitty)
+                 (const :tag "iTerm2 inline images" iterm)
+                 (const :tag "Auto-detect (not recommended)" auto))
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-chafa-args nil
+  "Extra arguments passed to `kitty-gfx-chafa-program'.
+Appended after the format and size arguments."
+  :type '(repeat string)
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-chafa-timeout 5.0
+  "Maximum time in seconds to wait for a single chafa run.
+When nil, wait indefinitely.  A hung chafa process will otherwise
+block Emacs."
+  :type '(choice (const :tag "No timeout" nil) number)
   :group 'kitty-graphics)
 
 (defcustom kitty-gfx-heading-scales '((1 . 2.0) (2 . 1.5) (3 . 1.2))
@@ -1030,14 +1064,21 @@ Sets `kitty-gfx--active-backend' to the detected backend symbol."
           (let ((fn (alist-get 'detect (alist-get 'sixel kitty-gfx--backends))))
             (when (and fn (funcall fn))
               (setq detected 'sixel))))
-         ;; Auto: try Kitty first (fast env check), then Sixel
+         ((eq pref 'chafa)
+          (let ((fn (alist-get 'detect (alist-get 'chafa kitty-gfx--backends))))
+            (when (and fn (funcall fn))
+              (setq detected 'chafa))))
+         ;; Auto: try Kitty first (fast env check), then Sixel, then chafa
          (t
           (let ((kitty-fn (alist-get 'detect (alist-get 'kitty kitty-gfx--backends))))
             (if (and kitty-fn (funcall kitty-fn))
                 (setq detected 'kitty)
               (let ((sixel-fn (alist-get 'detect (alist-get 'sixel kitty-gfx--backends))))
-                (when (and sixel-fn (funcall sixel-fn))
-                  (setq detected 'sixel)))))))
+                (if (and sixel-fn (funcall sixel-fn))
+                    (setq detected 'sixel)
+                  (let ((chafa-fn (alist-get 'detect (alist-get 'chafa kitty-gfx--backends))))
+                    (when (and chafa-fn (funcall chafa-fn))
+                      (setq detected 'chafa)))))))))
         (setq kitty-gfx--active-backend detected)
         (kitty-gfx--set-tparam 'kitty-gfx-backend detected)
         (kitty-gfx--log "detect-protocol: result=%s" detected)
@@ -1067,7 +1108,7 @@ terminal.  Used by the mode-enable failure message and
                     (car ver) (cadr ver))
           "tmux version unknown; Sixel inside tmux needs tmux >= 3.4")))
      (t
-      (format "no Kitty or Sixel terminal detected (TERM=%s, TERM_PROGRAM=%s); set `kitty-gfx-preferred-protocol' to force one"
+      (format "no Kitty, Sixel or chafa backend available (TERM=%s, TERM_PROGRAM=%s); set `kitty-gfx-preferred-protocol' to force one"
               (or term "?") (or term-prog "?"))))))
 
 (defun kitty-gfx--unread-non-reply (response patterns events)
@@ -2180,6 +2221,182 @@ disk/memory state, preventing pixel artifacts on mode disable."
   (setq kitty-gfx--sixel-temp-files nil)
   (clrhash kitty-gfx--sixel-cache))
 
+;;;; Chafa backend
+
+(defvar kitty-gfx--chafa-cache (make-hash-table :test 'equal)
+  "Maps (file . cache-key) to chafa output strings.
+The cache key incorporates the output format and cell dimensions so
+that a change in either invalidates the cached payload.")
+
+(defun kitty-gfx--chafa-resolve ()
+  "Resolve the chafa program.
+Return the absolute path, or nil when no chafa binary is available."
+  (or (and kitty-gfx-chafa-program (executable-find kitty-gfx-chafa-program))
+      (executable-find "chafa")))
+
+(defun kitty-gfx--chafa-detect ()
+  "Return non-nil if the chafa backend is available.
+Merely checks that a chafa binary can be found; the terminal's
+ability to render the configured `kitty-gfx-chafa-format' is left
+to the user."
+  (let ((path (kitty-gfx--chafa-resolve)))
+    (kitty-gfx--log "chafa-detect: %s" (if path path "not found"))
+    (and path t)))
+
+(defun kitty-gfx--chafa-format-arg ()
+  "Return the `--format' argument list for chafa, or nil for default."
+  (pcase kitty-gfx-chafa-format
+    ('auto nil)
+    ('sixel (list "--format=sixels"))
+    ('symbols (list "--format=symbols"))
+    ('kitty (list "--format=kitty"))
+    ('iterm (list "--format=iterm"))
+    (_ nil)))
+
+(defun kitty-gfx--chafa-cache-key (file cols rows)
+  "Return a cache key for FILE rendered at COLS x ROWS.
+The key includes the configured `kitty-gfx-chafa-format' so that
+switching formats invalidates cached payloads."
+  (format "%s:%s:%dx%d" file kitty-gfx-chafa-format cols rows))
+
+(defun kitty-gfx--chafa-encode (file cols rows)
+  "Encode FILE with chafa for COLS x ROWS cells.
+Return the terminal payload string or nil on failure."
+  (let ((program (kitty-gfx--chafa-resolve)))
+    (if (not program)
+        (progn
+          (kitty-gfx--log "chafa-encode: no chafa program found")
+          nil)
+      (let* ((format-args (kitty-gfx--chafa-format-arg))
+             ;; Sixel and symbols must fill exactly COLS x ROWS cells to
+             ;; match the reserved overlay area; otherwise the image leaks
+             ;; into neighbouring cells or leaves pixel artifacts.  Tell
+             ;; chafa the terminal's real cell aspect ratio so it computes
+             ;; the correct pixel dimensions.  Kitty and iTerm protocols
+             ;; size the image in pixels, so stretching is not needed there.
+             (cw (or kitty-gfx--cell-pixel-width 8))
+             (ch (or kitty-gfx--cell-pixel-height 16))
+             (size-args (append (list "--size" (format "%dx%d" cols rows))
+                                (list "--font-ratio" (format "%d/%d" cw ch))
+                                (when (memq kitty-gfx-chafa-format '(sixel symbols))
+                                  (list "--stretch"))))
+             (args (append format-args
+                           kitty-gfx-chafa-args
+                           size-args
+                           (list (expand-file-name file))))
+             (dest (generate-new-buffer " *kitty-gfx-chafa*")))
+        (kitty-gfx--log "chafa-encode: %s %s" program args)
+        (unwind-protect
+            (if (kitty-gfx--sixel-run-encoder program kitty-gfx-chafa-timeout dest args)
+                (with-current-buffer dest
+                  (set-buffer-multibyte nil)
+                  (let ((data (buffer-string)))
+                    (kitty-gfx--log "chafa-encode: success (%d bytes)" (length data))
+                    data))
+              (kitty-gfx--log "chafa-encode: failed")
+              nil)
+          (when (buffer-live-p dest) (kill-buffer dest)))))))
+
+(defun kitty-gfx--chafa-prepare (file _image-id)
+  "Prepare FILE for chafa display.
+For chafa, preparation just checks that FILE exists and is readable.
+Actual encoding happens at place-time, when the dimensions are known."
+  (and file (file-readable-p file) t))
+
+(defun kitty-gfx--chafa-sanitize-data (data format term-col)
+  "Clean up chafa output DATA before sending it to the terminal.
+Removes cursor hide/show wrappers and any trailing newline chafa
+adds after the payload.  For `symbols' output, replaces internal
+newlines with explicit cursor positioning so the multi-line image
+stays in one rectangle instead of fragmenting across the screen.
+TERM-COL is the target column and is used when repositioning after
+symbol rows."
+  (when data
+    (let ((d data))
+      ;; Strip leading cursor-hide and trailing cursor-show sequences.
+      (when (string-prefix-p "\e[?25l" d)
+        (setq d (substring d 6)))
+      (when (string-suffix-p "\e[?25h" d)
+        (setq d (substring d 0 -6)))
+      ;; Strip trailing newline(s) chafa emits after the payload.
+      (while (and (> (length d) 0) (= (aref d (1- (length d))) ?\n))
+        (setq d (substring d 0 -1)))
+      ;; Symbol mode uses LF to advance to the next line.  After a LF
+      ;; the cursor is at column 1, so we must move it back to TERM-COL
+      ;; before drawing the next row.  Sixel mode keeps its LFs because
+      ;; they are part of the DCS protocol framing.
+      (when (eq format 'symbols)
+        (setq d (replace-regexp-in-string
+                 "\n" (format "\e[E\e[%dG" term-col) d t t)))
+      d)))
+
+(defun kitty-gfx--chafa-place (ov _image-id _placement-id cols rows term-row term-col)
+  "Place a chafa-encoded image at (TERM-ROW, TERM-COL).
+Encodes on demand if not cached, then emits the chafa payload with
+its top-left corner positioned at the target cell."
+  (let* ((file (overlay-get ov 'kitty-gfx-file))
+         (cache-key (kitty-gfx--chafa-cache-key file cols rows))
+         (dims (cons cols rows))
+         (mem (and (eq (overlay-get ov 'kitty-gfx-chafa-format) kitty-gfx-chafa-format)
+                   (equal (overlay-get ov 'kitty-gfx-chafa-dims) dims)
+                   (overlay-get ov 'kitty-gfx-chafa-data)))
+         (data nil))
+    (cond
+     ((not file)
+      (kitty-gfx--log "chafa-place: no file for overlay"))
+     (mem
+      (kitty-gfx--log "chafa-place: reusing in-memory chafa for %s" file)
+      (setq data mem))
+     ((gethash cache-key kitty-gfx--chafa-cache)
+      (kitty-gfx--log "chafa-place: using cached chafa for %s" file)
+      (setq data (gethash cache-key kitty-gfx--chafa-cache)))
+     (t
+      (kitty-gfx--log "chafa-place: encoding %s at %dx%d" file cols rows)
+      (setq data (kitty-gfx--chafa-encode file cols rows))
+      (when data
+        (puthash cache-key data kitty-gfx--chafa-cache))))
+    (when data
+      ;; Ensure the overlay always carries the raw cached payload so that
+      ;; stateless re-emit in the refresh loop does not defer needlessly
+      ;; (this also covers overlays created from a warm cache).
+      (overlay-put ov 'kitty-gfx-chafa-data data)
+      (overlay-put ov 'kitty-gfx-chafa-dims dims)
+      (overlay-put ov 'kitty-gfx-chafa-format kitty-gfx-chafa-format)
+      (setq data (kitty-gfx--chafa-sanitize-data data kitty-gfx-chafa-format term-col))
+      (kitty-gfx--terminal-send
+       (format "\e7\e[%d;%dH%s\e8" term-row term-col data)))))
+
+(defun kitty-gfx--chafa-delete (ov _image-id _placement-id)
+  "Delete a chafa placement by overwriting its cells with spaces.
+chafa has no protocol-level delete; erase the reserved rectangle."
+  (let ((last-row (overlay-get ov 'kitty-gfx-last-row))
+        (last-col (overlay-get ov 'kitty-gfx-last-col))
+        (rows (overlay-get ov 'kitty-gfx-rows))
+        (cols (overlay-get ov 'kitty-gfx-cols)))
+    (when (and last-row last-col rows cols)
+      (kitty-gfx--log "chafa-delete: erase row=%d col=%d %dx%d"
+                      last-row last-col cols rows)
+      (kitty-gfx--terminal-send
+       (kitty-gfx--blank-rect-string last-row last-col cols rows)))))
+
+(defun kitty-gfx--chafa-cleanup (_file _image-id)
+  "Cleanup chafa resources for FILE.
+In-memory cache entries are evicted lazily by size; nothing to do here."
+  nil)
+
+(defun kitty-gfx--chafa-cleanup-all ()
+  "Cleanup all chafa resources.
+Erase visible chafa images from the terminal before clearing caches."
+  (kitty-gfx--log "chafa-cleanup-all: clearing cache")
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (dolist (ov kitty-gfx--overlays)
+        (when (and (overlay-buffer ov)
+                   (not (overlay-get ov 'kitty-gfx-heading))
+                   (overlay-get ov 'kitty-gfx-last-row))
+          (funcall #'kitty-gfx--chafa-delete ov nil nil)))))
+  (clrhash kitty-gfx--chafa-cache))
+
 ;; Register backends
 (setq kitty-gfx--backends
       `((kitty . ((detect . ,#'kitty-gfx--kitty-detect)
@@ -2193,7 +2410,13 @@ disk/memory state, preventing pixel artifacts on mode disable."
                   (place . ,#'kitty-gfx--sixel-place)
                   (delete . ,#'kitty-gfx--sixel-delete)
                   (cleanup . ,#'kitty-gfx--sixel-cleanup)
-                  (cleanup-all . ,#'kitty-gfx--sixel-cleanup-all)))))
+                  (cleanup-all . ,#'kitty-gfx--sixel-cleanup-all)))
+        (chafa . ((detect . ,#'kitty-gfx--chafa-detect)
+                  (prepare . ,#'kitty-gfx--chafa-prepare)
+                  (place . ,#'kitty-gfx--chafa-place)
+                  (delete . ,#'kitty-gfx--chafa-delete)
+                  (cleanup . ,#'kitty-gfx--chafa-cleanup)
+                  (cleanup-all . ,#'kitty-gfx--chafa-cleanup-all)))))
 
 ;; Cleanup temp files on exit
 (add-hook 'kill-emacs-hook #'kitty-gfx--sixel-cleanup-all)
@@ -3270,15 +3493,15 @@ refresh based on overlay type."
              ((and (eql new-row last-row)
                    (eql new-col last-col))
               ;; Kitty keeps the image as a persistent placement, so an
-              ;; unchanged position is a no-op.  Sixel pixels live in the
-              ;; text grid and any redisplay of those cells (blank-display
-              ;; repaint, neighbouring edit) wipes them, leaving the image
-              ;; gone since no later refresh re-emits at the same spot.  So
-              ;; on Sixel re-emit from the cached encoding (cheap: no
-              ;; re-encode, inside the refresh sync block, image-id/pid
-              ;; ignored by `kitty-gfx--sixel-place').
+              ;; unchanged position is a no-op.  Sixel and chafa pixels live
+              ;; in the text grid and any redisplay of those cells
+              ;; (blank-display repaint, neighbouring edit) wipes them,
+              ;; leaving the image gone since no later refresh re-emits at
+              ;; the same spot.  So on Sixel/chafa re-emit from the cached
+              ;; encoding (cheap: no re-encode, inside the refresh sync
+              ;; block, image-id/pid ignored by the backend's place fn).
               (cond
-               ((not (eq kitty-gfx--active-backend 'sixel))
+               ((not (memq kitty-gfx--active-backend '(sixel chafa)))
                 (kitty-gfx--log "refresh-ov: pid=%d unchanged at row=%d col=%d"
                                 pid new-row new-col))
                ;; Re-emit only once the encoding is in hand; while the
@@ -3292,8 +3515,15 @@ refresh based on overlay type."
                                 pid new-row new-col)
                 (funcall (kitty-gfx--backend-fn 'place)
                          ov id pid cols rows new-row new-col))
+               ((and (equal (overlay-get ov 'kitty-gfx-chafa-dims)
+                            (cons cols rows))
+                     (overlay-get ov 'kitty-gfx-chafa-data))
+                (kitty-gfx--log "refresh-ov: pid=%d chafa re-emit at row=%d col=%d"
+                                pid new-row new-col)
+                (funcall (kitty-gfx--backend-fn 'place)
+                         ov id pid cols rows new-row new-col))
                (t
-                (kitty-gfx--log "refresh-ov: pid=%d sixel re-emit deferred (no cached encoding)"
+                (kitty-gfx--log "refresh-ov: pid=%d stateless re-emit deferred (no cached encoding)"
                                 pid))))
              ((not (kitty-gfx--ensure-transmitted
                     (overlay-get ov 'kitty-gfx-file) id))
@@ -3304,11 +3534,12 @@ refresh based on overlay type."
                               pid
                               (if last-row (format "row=%d,col=%d" last-row last-col) "nil")
                               new-row new-col)
-              ;; Sixel has no placement IDs — re-placing at a new position
-              ;; or size leaves the old pixel block on screen unless we
-              ;; explicitly erase it first.  `sixel-delete' reads OLD
-              ;; last-row/last-col/cols/rows from the overlay, so erase
-              ;; BEFORE updating the cache below (issue #13).
+              ;; Sixel and chafa have no placement IDs — re-placing at a
+              ;; new position or size leaves the old pixel block on screen
+              ;; unless we explicitly erase it first.  Use the recorded
+              ;; per-window placement dimensions here rather than the
+              ;; overlay's current geometry, because the overlay cols/rows
+              ;; may already have been updated to the new size (issue #13).
               ;;
               ;; Kitty direct mode: same-PID re-placement is supposed to
               ;; atomically replace the old placement, but when the new
@@ -3326,8 +3557,8 @@ refresh based on overlay type."
                        (shrunk (or (and old-cols (< cols old-cols))
                                    (and old-rows (< rows old-rows)))))
                   (cond
-                   ((eq kitty-gfx--active-backend 'sixel)
-                    (funcall (kitty-gfx--backend-fn 'delete) ov id pid))
+                   ((memq kitty-gfx--active-backend '(sixel chafa))
+                    (kitty-gfx--delete-image-placement ov placement))
                    ((and (eq kitty-gfx--active-backend 'kitty)
                          (eq (kitty-gfx--effective-placement-mode) 'direct)
                          shrunk)
@@ -4637,12 +4868,13 @@ placements."
 
 ;;;###autoload
 (define-minor-mode kitty-graphics-mode
-  "Display images in terminal Emacs via graphics protocol (Kitty or Sixel)."
+  "Display images in terminal Emacs via graphics protocol (Kitty, Sixel or chafa)."
   :global t
   :lighter (:eval (concat " KittyGfx["
                           (pcase kitty-gfx--active-backend
                             ('kitty "K")
                             ('sixel "S")
+                            ('chafa "C")
                             (_ "?"))
                           (if (eq kitty-gfx--text-sizing-support 'scale)
                               "+T" "")
@@ -6427,7 +6659,7 @@ Returns nil when mpv playback is available."
    ((kitty-gfx--frame-getenv "TMUX")
     "running inside tmux (mpv's raw frame stream bypasses the tmux passthrough wrapper)")
    ((not (memq (kitty-gfx--mpv-backend) '(kitty sixel)))
-    "no Kitty or Sixel backend active")
+    "no Kitty or Sixel backend active (mpv requires one of these)")
    ((not (executable-find "mpv"))
     "mpv executable not found on PATH")
    ((not (kitty-gfx--mpv-backend-vo))
