@@ -746,17 +746,21 @@ that program directly."
   :type '(choice (const :tag "Auto-detect" nil) string)
   :group 'kitty-graphics)
 
-(defcustom kitty-gfx-chafa-format 'sixel
+(defcustom kitty-gfx-chafa-format 'auto
   "Output format for the chafa backend.
 `sixel' forces Sixel output.  `symbols' forces Unicode character art.
-`kitty' and `iterm' force the respective graphics protocols.  `auto'
-lets chafa probe the terminal, which may interact poorly with Emacs'
-input stream and is therefore not recommended."
-  :type '(choice (const :tag "Sixel" sixel)
+`kitty' and `iterm' force the respective graphics protocols.
+
+`auto' picks a format based on terminal capabilities: Sixel when the
+terminal is known to support it (see `kitty-gfx--sixel-detect'),
+otherwise Unicode symbols as a safe fallback.  This avoids emitting
+Sixel data to terminals such as Kitty or Ghostty that do not render
+it, while still using the richer Sixel format on foot, WezTerm, etc."
+  :type '(choice (const :tag "Auto-detect" auto)
+                 (const :tag "Sixel" sixel)
                  (const :tag "Unicode symbols" symbols)
                  (const :tag "Kitty graphics" kitty)
-                 (const :tag "iTerm2 inline images" iterm)
-                 (const :tag "Auto-detect (not recommended)" auto))
+                 (const :tag "iTerm2 inline images" iterm))
   :group 'kitty-graphics)
 
 (defcustom kitty-gfx-chafa-args nil
@@ -2243,9 +2247,35 @@ to the user."
     (kitty-gfx--log "chafa-detect: %s" (if path path "not found"))
     (and path t)))
 
+(defun kitty-gfx--chafa-kitty-or-ghostty-p (&optional frame)
+  "Return non-nil if FRAME's terminal is Kitty or Ghostty.
+WezTerm is intentionally excluded: it speaks both Kitty and Sixel,
+so Sixel output is preferable there."
+  (let ((f (or frame (selected-frame))))
+    (or (kitty-gfx--frame-getenv "KITTY_PID" f)
+        (kitty-gfx--frame-getenv "KITTY_WINDOW_ID" f)
+        (kitty-gfx--frame-getenv "KITTY_PUBLIC_KEY" f)
+        (kitty-gfx--frame-getenv "GHOSTTY_RESOURCES_DIR" f)
+        (kitty-gfx--frame-getenv "GHOSTTY_BIN_DIR" f)
+        (member (kitty-gfx--frame-getenv "TERM_PROGRAM" f)
+                '("kitty" "ghostty")))))
+
+(defun kitty-gfx--chafa-effective-format ()
+  "Return the chafa output format to actually use.
+Honours `kitty-gfx-chafa-format' when it is a concrete format.
+When it is `auto', choose Sixel for terminals known to support it
+and Unicode symbols everywhere else (Kitty, Ghostty, plain ANSI
+terminals, etc.)."
+  (if (eq kitty-gfx-chafa-format 'auto)
+      (if (and (not (kitty-gfx--chafa-kitty-or-ghostty-p))
+               (kitty-gfx--sixel-detect))
+          'sixel
+        'symbols)
+    kitty-gfx-chafa-format))
+
 (defun kitty-gfx--chafa-format-arg ()
   "Return the `--format' argument list for chafa, or nil for default."
-  (pcase kitty-gfx-chafa-format
+  (pcase (kitty-gfx--chafa-effective-format)
     ('auto nil)
     ('sixel (list "--format=sixels"))
     ('symbols (list "--format=symbols"))
@@ -2255,9 +2285,9 @@ to the user."
 
 (defun kitty-gfx--chafa-cache-key (file cols rows)
   "Return a cache key for FILE rendered at COLS x ROWS.
-The key includes the configured `kitty-gfx-chafa-format' so that
-switching formats invalidates cached payloads."
-  (format "%s:%s:%dx%d" file kitty-gfx-chafa-format cols rows))
+The key includes the effective chafa format so that switching
+formats invalidates cached payloads."
+  (format "%s:%s:%dx%d" file (kitty-gfx--chafa-effective-format) cols rows))
 
 (defun kitty-gfx--chafa-encode (file cols rows)
   "Encode FILE with chafa for COLS x ROWS cells.
@@ -2278,7 +2308,7 @@ Return the terminal payload string or nil on failure."
              (ch (or kitty-gfx--cell-pixel-height 16))
              (size-args (append (list "--size" (format "%dx%d" cols rows))
                                 (list "--font-ratio" (format "%d/%d" cw ch))
-                                (when (memq kitty-gfx-chafa-format '(sixel symbols))
+                                (when (memq (kitty-gfx--chafa-effective-format) '(sixel symbols))
                                   (list "--stretch"))))
              (args (append format-args
                            kitty-gfx-chafa-args
@@ -2335,9 +2365,10 @@ symbol rows."
 Encodes on demand if not cached, then emits the chafa payload with
 its top-left corner positioned at the target cell."
   (let* ((file (overlay-get ov 'kitty-gfx-file))
+         (format (kitty-gfx--chafa-effective-format))
          (cache-key (kitty-gfx--chafa-cache-key file cols rows))
          (dims (cons cols rows))
-         (mem (and (eq (overlay-get ov 'kitty-gfx-chafa-format) kitty-gfx-chafa-format)
+         (mem (and (eq (overlay-get ov 'kitty-gfx-chafa-format) format)
                    (equal (overlay-get ov 'kitty-gfx-chafa-dims) dims)
                    (overlay-get ov 'kitty-gfx-chafa-data)))
          (data nil))
@@ -2361,8 +2392,8 @@ its top-left corner positioned at the target cell."
       ;; (this also covers overlays created from a warm cache).
       (overlay-put ov 'kitty-gfx-chafa-data data)
       (overlay-put ov 'kitty-gfx-chafa-dims dims)
-      (overlay-put ov 'kitty-gfx-chafa-format kitty-gfx-chafa-format)
-      (setq data (kitty-gfx--chafa-sanitize-data data kitty-gfx-chafa-format term-col))
+      (overlay-put ov 'kitty-gfx-chafa-format format)
+      (setq data (kitty-gfx--chafa-sanitize-data data format term-col))
       (kitty-gfx--terminal-send
        (format "\e7\e[%d;%dH%s\e8" term-row term-col data)))))
 
