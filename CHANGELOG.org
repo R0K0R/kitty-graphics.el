@@ -1,5 +1,15 @@
 * Changelog
 
+** kitty-graphics 1.1.0
+
+Scaled org headings are now rendered with per-part styling.  The TODO/DONE keyword, priority cookie, title, and tags each become a separate OSC 66 segment with SGR colors and attributes taken from their real org faces, including custom ~org-todo-keyword-faces~.  New ~kitty-gfx-heading-fontify-keywords~ (default ~t~) gates this; the underlying SGR builder now resolves named faces, attribute plists, ~#RRGGBB~ strings, and ~:inherit~, emitting weight, slant, underline, and 24-bit foreground/background.
+
+Fractional-scale headings can be centered vertically inside their reserved multicell block via new ~kitty-gfx-heading-valign~ (default ~centered~), using the OSC 66 ~:v=~ parameter; integer-scale headings still fill their block exactly.
+
+Marginal scales no longer force a multicell row for little visual gain.  New ~kitty-gfx-heading-min-scale~ (default ~1.2~) keeps configured scales between 1.0 and the threshold at normal one-row size.
+
+Layout changes no longer leave ghost heading glyphs: opening a popup, ~which-key~, or the minibuffer over a buffer with scaled headings erases the emitted multicell blocks first.
+
 ** kitty-graphics 1.0.3
 
 Images show up again under kitty -> tmux -> emacs.  With =allow-passthrough= off the Kitty protocol can't traverse tmux, so detection fell back to Sixel, but kitty and ghostty have no Sixel support and tmux only drew its own =SIXEL IMAGE= placeholder.  Detection no longer falls back to Sixel when the outer terminal is kitty/ghostty and keeps pointing at =tmux set -g allow-passthrough on= instead; =kitty-gfx-doctor= stops reporting a misleading =sixel-ok yes= for this case.
