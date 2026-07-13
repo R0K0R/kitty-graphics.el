@@ -39,6 +39,11 @@ PDFs, DVI, PostScript, and EPUB render inline through doc-view, page-centered, w
 
 [[file:assets/casty-demo.gif]]
 
+*GUI Emacs running a ghostel terminal that runs a Emacs TTY that shows the image from above in a image buffer.*
+[[file:assets/ghostel-kitty.webp]]
+[[https://www.reddit.com/r/emacs/comments/1u7f5lw/comment/os1fl24/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button][source]]
+by [[https://github.com/dakra/ghostel][dakra, creator of ghostel]]
+
 * Overview
 
 ~kitty-graphics.el~ renders images directly in terminal Emacs using either the Kitty graphics protocol or Sixel, selected automatically at startup. The backend dispatch tries Kitty first (fast ~KITTY_PID~ env check), then probes for Sixel support, so the package works across ~20+ terminals without configuration.
@@ -103,7 +108,8 @@ stops its playback.
 
 #+begin_src emacs-lisp
 (use-package kitty-graphics
-  :straight (:local-repo "~/projects/kitty-graphics")
+  :straight (:host github :repo "cashmeredev/kitty-graphics.el")
+  :ensure t
   :config
   (setq kitty-gfx-enable-video t)   ; optional: inline mpv playback
   (kitty-graphics-setup))
