@@ -1,39 +1,69 @@
-- [Test inline images](#org8470dd3)
-- [Another section](#orgd848165)
-- [Relative path test](#orge65cdb7)
-- [LaTeX fragment preview test](#orgd852c9f)
+# Kitty Graphics markdown test
 
+Manual test for the markdown-mode integration.  Enable
+`kitty-graphics-mode', then `M-x markdown-toggle-inline-images'
+to render images, same command again to hide.
 
+## Test inline images
 
-<a id="org8470dd3"></a>
+Here is an inline image:
 
-# Test inline images
-
-Here is an inline image using file: link:
+![img](test-image.png)
 
 Some text after the image to verify overlay positioning.
 
+## Subheading images (PR #43 repro)
 
-<a id="orgd848165"></a>
+### Plotting
 
-# Another section
+![Plotting](./assets/test-image.png)
 
-This section has no images, just text to test scrolling behavior.
+### Perlin Noise
 
-Line 1 Line 2 Line 3 Line 4 Line 5 Line 6 Line 7 Line 8 Line 9 Line 10
+![Perlin Noise](assets/test-image.png)
 
+Expected: both images render directly below their headings.
 
-<a id="orge65cdb7"></a>
+## Hidden markup test
 
-# Relative path test
+![img](test-image.png)
+
+Steps: with images displayed, `C-c C-x C-m'
+(`markdown-toggle-markup-hiding'), then toggle it back.
+Expected: the image renders with markup hidden and with markup
+shown.  markdown-mode marks all link markup with
+`invisible=markdown-markup' — cosmetic hiding, must not be
+treated as folding.
+
+## Folded section test
+
+![img](assets/test-image.png)
+
+Steps: point on this heading, TAB (`markdown-cycle') to fold the
+section, S-TAB to unfold everything.
+Expected: no image while folded, image re-rendered after
+unfolding.
+
+## Commented image test
+
+<!-- ![img](test-image.png) -->
+
+Expected: no image and no reserved space — links inside HTML
+comments are skipped.
+
+## Relative path test
 
 ![img](./test-image.png)
 
 ![img](assets/test-image.png)
 
-<a id="orgd852c9f"></a>
+## Another section
 
-# LaTeX fragment preview test
+This section has no images, just text to test scrolling behavior.
+
+Line 1 Line 2 Line 3 Line 4 Line 5 Line 6 Line 7 Line 8 Line 9 Line 10
+
+## LaTeX fragment preview test
 
 Inline math: $E = mc^2$
 

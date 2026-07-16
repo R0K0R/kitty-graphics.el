@@ -3162,7 +3162,10 @@ With prefix ARG, force remove heading sizes."
   "Non-nil if POS is inside a folded region (collapsed heading, block, etc.).
 Checks org-fold (org 9.6+, text-property based) first, then falls
 back to overlay-based invisibility for legacy org and outline-mode.
-Ignores cosmetic invisibility like hidden link brackets (`org-link')."
+Ignores cosmetic invisibility like hidden link brackets (`org-link')
+or markdown markup (`markdown-markup') — markdown-mode puts that
+property on link/image markup whenever it fontifies, regardless of
+whether hiding is active in `buffer-invisibility-spec'."
   (let ((folded
          (or
           ;; org-fold (org 9.6+): text-property based folding.
@@ -3172,7 +3175,7 @@ Ignores cosmetic invisibility like hidden link brackets (`org-link')."
                  (error nil)))
           ;; Legacy / non-org overlay-based folding (outline-mode, etc.)
           (let ((inv (get-char-property pos 'invisible)))
-            (and inv (not (eq inv 'org-link)))))))
+            (and inv (not (memq inv '(org-link markdown-markup))))))))
     (when folded
       (kitty-gfx--log "in-folded-region: pos=%d folded=%s" pos folded))
     folded))
