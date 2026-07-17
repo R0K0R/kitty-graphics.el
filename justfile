@@ -88,11 +88,33 @@ test-image:
         tests/test-image.png
     @echo ">> debug log written to /tmp/kitty-gfx.log"
 
-# Test doc-view / PDF rendering
-test-pdf:
+# Test doc-view / PDF rendering (sharpness check, fresh /tmp/kitty-gfx.log).
+# The first log line records WHERE the sharpness code was loaded from
+# (via `symbol-file'), so a stale installed copy shows up immediately.
+# clear=1 also wipes the doc-view page cache (/tmp/docview*) first, forcing
+# a fresh conversion at the computed DPI instead of self-healing the old one.
+#   just test-pdf                                   # tests/test-document.pdf
+#   just test-pdf file=tests/test-document-2page.pdf
+#   just test-pdf clear=1
+test-pdf file="tests/test-document.pdf" clear="0":
+    #!/usr/bin/env bash
+    set -u
+    file={{file}}; file=${file#file=}
+    clear={{clear}}; clear=${clear#clear=}
+    if [ "$clear" = "1" ]; then
+        echo ">> removing doc-view page cache: /tmp/docview*"
+        rm -rf /tmp/docview*
+    fi
+    rm -f /tmp/kitty-gfx.log
+    echo ">> fresh debug log: /tmp/kitty-gfx.log (send it back after testing)"
+    echo ">> first line should read: test-pdf: loaded=<repo path> scale=2.0"
+    echo ">> watch for: 'doc-view: ... dpi' and 'identify: WxH pixels' lines"
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
+        --eval "(setq kitty-gfx-debug t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        tests/test-document.pdf
+        --eval "(kitty-gfx--log \"test-pdf: loaded=%s scale=%s\" (or (symbol-file 'kitty-gfx--doc-view-ensure-resolution) \"OLD BUILD -- sharpness fix NOT loaded\") kitty-gfx-doc-view-resolution-scale)" \
+        "$file"
+    echo ">> debug log written to /tmp/kitty-gfx.log"
 
 # Test markdown-overlays integration
 test-markdown:

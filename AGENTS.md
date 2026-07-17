@@ -280,6 +280,23 @@ changes; `kitty-gfx--browser-ipc-filter` parses replies and clears
 - **Limitation**: Sixel is 256 colors (vs truecolor on Kitty), stateless (re-emits on scroll)
 - **Done**: LaTeX fragment preview in org-mode (#3)
 - **Done**: doc-view / pdf-view-mode integration (#4)
+- **Done**: sharp doc-view rendering -- pages are re-rendered at a higher
+  `doc-view-resolution' when the page PNG has fewer pixels than
+  `kitty-gfx-doc-view-resolution-scale' (default 2.0) times the exact-fit
+  display area (`kitty-gfx--doc-view-ensure-resolution', called from the
+  insert advice; reconversion is async and the stale page stays on screen
+  until the callback re-displays).  The multiplier doubles as zoom
+  headroom.  MuPDF SVG pages (`doc-view-mupdf-use-svg') are vector and
+  cannot honor a DPI bump, so terminal buffers are switched to PNG
+  rendering with the target DPI computed from the SVG's point size
+  (72/inch); requested DPI is capped by `kitty-gfx--doc-view-max-resolution'
+  (1200) so a poisoned cache self-heals.  The check re-queries the cell
+  size when the globals are invalidated (never trusts the 8x16 fallback),
+  and stacking is prevented by `kitty-gfx--doc-view-requested-resolution'
+  rather than by skipping while other pages convert.
+- **Limitation**: doc-view zoom beyond `kitty-gfx-doc-view-resolution-scale'
+  upscales the stored page render instead of re-rendering; raise the
+  defcustom for more headroom
 - **Done**: Typst inline equation preview (#5) -- `kitty-gfx-typst-preview`
   scans `$...$' fragments in the current buffer or region, compiles each
   via the `typst' CLI, and displays the resulting PNG inline. No advice

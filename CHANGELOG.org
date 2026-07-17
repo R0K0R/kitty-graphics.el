@@ -1,5 +1,35 @@
 * Changelog
 
+** kitty-graphics 1.3.0
+
+doc-view pages now render sharp in the terminal.  Pages were displayed
+from doc-view's fixed-DPI PNG (100 dpi by default), so any window whose
+pixel area exceeded the page's pixels showed an upscaled, blurry page.
+New ~kitty-gfx-doc-view-resolution-scale~ (default ~2.0~) re-renders
+the document at a higher ~doc-view-resolution~ whenever the page image
+has fewer pixels than the multiplier times the exact-fit display area;
+the stale page stays on screen until the reconversion callback
+re-displays it.  The multiplier doubles as zoom headroom: ~+~ / ~-~
+zoom crops source pixels, so pages stay sharp up to roughly that
+factor before upscaling kicks in.
+
+MuPDF SVG pages (~doc-view-mupdf-use-svg~) are switched to PNG
+rendering in terminal buffers.  The SVG output is vector, so its
+nominal pixel size never grows with DPI — bumping the resolution
+could never satisfy the sharpness check (and looped), and the
+rasterized placement was always stuck at the 72dpi nominal size.
+The target DPI is computed from the SVG's point size directly, and
+the requested resolution is capped at 1200 dpi so a poisoned cache
+self-heals on the next reconvert.
+
+The sharpness check re-queries the terminal cell size when the
+globals were invalidated by a window change (the 8x16 fallback
+undersized the render target), and no longer skips while other
+pages are still converting — a buffer-local record of the requested
+DPI prevents stacked reconversions instead, so multi-page documents
+get their re-render even when page one displays while page two is
+still converting.
+
 ** kitty-graphics 1.1.0
 
 Scaled org headings are now rendered with per-part styling.  The TODO/DONE keyword, priority cookie, title, and tags each become a separate OSC 66 segment with SGR colors and attributes taken from their real org faces, including custom ~org-todo-keyword-faces~.  New ~kitty-gfx-heading-fontify-keywords~ (default ~t~) gates this; the underlying SGR builder now resolves named faces, attribute plists, ~#RRGGBB~ strings, and ~:inherit~, emitting weight, slant, underline, and 24-bit foreground/background.
