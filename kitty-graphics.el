@@ -3,7 +3,7 @@
 ;; Copyright (C) 2025-2026
 ;;
 ;; Author: cashmere
-;; Version: 1.1.0
+;; Version: 1.2.0
 ;; URL: https://github.com/cashmeredev/kitty-graphics.el
 ;; Keywords: terminals, images, multimedia
 ;; Package-Requires: ((emacs "27.1"))
@@ -42,7 +42,8 @@
 ;; Usage:
 ;;   (require 'kitty-graphics)
 ;;   (kitty-graphics-setup)
-;;   ;; Then org-mode C-c C-x C-v, image-mode, eww images all work.
+;;   ;; Then org-mode C-c C-x C-v, markdown-mode `markdown-toggle-inline-images',
+;;   ;; image-mode, eww images all work.
 ;;
 ;; `kitty-graphics-setup' enables the mode the right way for both plain
 ;; `emacs -nw' and `emacs --daemon': under a daemon there is no terminal
@@ -90,6 +91,9 @@
 (defvar org-comment-regexp)
 (defvar image-mode-map)
 (declare-function markdown-overlays--resolve-image-url "markdown-overlays" (url))
+(declare-function markdown-display-inline-images "markdown-mode" (&optional begin end))
+(declare-function markdown-remove-inline-images "markdown-mode" ())
+(declare-function markdown-toggle-inline-images "markdown-mode" ())
 (declare-function json-encode "json" (object))
 
 ;;;; Customization
@@ -163,6 +167,33 @@ Only consulted when `kitty-gfx-org-image-scale' is `fit'."
 (defcustom kitty-gfx-org-image-fit-height 25
   "Maximum org inline image height in rows under `fit' sizing.
 Only consulted when `kitty-gfx-org-image-scale' is `fit'."
+  :type 'integer
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-markdown-image-scale 'fit
+  "Sizing for markdown-mode inline images in the terminal.
+nil renders at natural size, shrinking only to fit
+`kitty-gfx-max-width' and `kitty-gfx-max-height'.  A float (e.g. 0.25)
+renders at that fraction of natural size, still capped at the max
+dimensions.  The symbol `fit' scales each image into a box derived from
+the live window: `kitty-gfx-markdown-image-fit-width' of the window
+width and `kitty-gfx-markdown-image-fit-height' rows tall, preserving
+aspect ratio and never enlarging images that already fit.  Defaults to
+`fit' so large images do not overflow the window."
+  :type '(choice (const :tag "Natural size (shrink to fit max)" nil)
+                 (number :tag "Fraction of natural size")
+                 (const :tag "Dynamic window-relative fit" fit))
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-markdown-image-fit-width 0.8
+  "Fraction of the window width a markdown inline image may occupy under `fit'.
+Only consulted when `kitty-gfx-markdown-image-scale' is `fit'."
+  :type 'number
+  :group 'kitty-graphics)
+
+(defcustom kitty-gfx-markdown-image-fit-height 25
+  "Maximum markdown inline image height in rows under `fit' sizing.
+Only consulted when `kitty-gfx-markdown-image-scale' is `fit'."
   :type 'integer
   :group 'kitty-graphics)
 
@@ -3131,7 +3162,10 @@ With prefix ARG, force remove heading sizes."
   "Non-nil if POS is inside a folded region (collapsed heading, block, etc.).
 Checks org-fold (org 9.6+, text-property based) first, then falls
 back to overlay-based invisibility for legacy org and outline-mode.
-Ignores cosmetic invisibility like hidden link brackets (`org-link')."
+Ignores cosmetic invisibility like hidden link brackets (`org-link')
+or markdown markup (`markdown-markup') — markdown-mode puts that
+property on link/image markup whenever it fontifies, regardless of
+whether hiding is active in `buffer-invisibility-spec'."
   (let ((folded
          (or
           ;; org-fold (org 9.6+): text-property based folding.
@@ -3141,7 +3175,7 @@ Ignores cosmetic invisibility like hidden link brackets (`org-link')."
                  (error nil)))
           ;; Legacy / non-org overlay-based folding (outline-mode, etc.)
           (let ((inv (get-char-property pos 'invisible)))
-            (and inv (not (eq inv 'org-link)))))))
+            (and inv (not (memq inv '(org-link markdown-markup))))))))
     (when folded
       (kitty-gfx--log "in-folded-region: pos=%d folded=%s" pos folded))
     folded))
@@ -5407,6 +5441,119 @@ otherwise display them.  \\[universal-argument] clears the region;
   (if (and kitty-graphics-mode (not (display-graphic-p)))
       (kitty-gfx--org-display-inline-images-tty include-linked beg end)
     (funcall orig-fn include-linked refresh beg end)))
+
+;;;; markdown-mode integration
+
+(defun kitty-gfx--markdown-resolve-url (url)
+  "Resolve markdown image URL to an absolute file path, or nil.
+Skips remote http/https URLs, ftp links, and mailto links.  Relative
+paths are expanded against `default-directory' (the caller binds this
+to the buffer file's directory when appropriate)."
+  (when (and url (not (string-match-p "\\`\\(https?://\\|ftp://\\|mailto:\\)" url)))
+    (cond
+     ((string-prefix-p "file:" url) (substring url 5))
+     ((file-name-absolute-p url) url)
+     (t (expand-file-name url default-directory)))))
+
+(defun kitty-gfx--markdown-display-image (file start end)
+  "Display markdown inline image FILE honoring `kitty-gfx-markdown-image-scale'.
+Mirrors `kitty-gfx--org-display-image': `fit' scales into a
+window-relative box, a number scales by that factor, nil uses the full
+`kitty-gfx-max-width'/`kitty-gfx-max-height' caps."
+  (pcase kitty-gfx-markdown-image-scale
+    ('fit
+     (let ((box (kitty-gfx--fit-box (get-buffer-window (current-buffer))
+                                    kitty-gfx-markdown-image-fit-width
+                                    kitty-gfx-markdown-image-fit-height)))
+       (kitty-gfx-display-image file start end (car box) (cdr box))))
+    ((and (pred numberp) factor)
+     (let ((kitty-gfx--dim-scale factor))
+       (kitty-gfx-display-image file start end)))
+    (_ (kitty-gfx-display-image file start end
+                                kitty-gfx-max-width kitty-gfx-max-height))))
+
+(defun kitty-gfx--markdown-in-comment-p (pos)
+  "Non-nil if POS is inside an HTML comment `<!-- ... -->'."
+  (save-excursion
+    (goto-char pos)
+    (let ((comment-open (re-search-backward "<!--" nil t))
+          (comment-close (re-search-forward "-->" nil t)))
+      (and comment-open comment-close
+           (< comment-open pos)
+           (> comment-close pos)))))
+
+(defun kitty-gfx--markdown-display-inline-images-tty (&optional begin end)
+  "Display inline markdown images via Kitty graphics in terminal.
+Scans BEGIN..END (defaults to whole buffer) for `![alt](url)' links and
+displays local image files.  Relative URLs are resolved against the
+buffer file's directory.  Remote URLs are skipped; use a browser or a
+dedicated download step if you need them rendered.  Links inside HTML
+comments (`<!-- ... -->') are ignored and any stale overlay on the
+commented line is removed, matching the org-mode comment behaviour."
+  (when (derived-mode-p 'markdown-mode)
+    (let ((start (or begin (point-min)))
+          (stop (or end (point-max)))
+          (default-directory (if buffer-file-name
+                                 (file-name-directory buffer-file-name)
+                               default-directory)))
+      (kitty-gfx--log "markdown-display: scanning region %d..%d in %s (dir %s)"
+                      start stop (buffer-name) default-directory)
+      (save-excursion
+        (goto-char start)
+        ;; Match ![alt text](url).  Nested brackets in alt text are not
+        ;; supported by this simple scanner, which covers the common case.
+        (while (re-search-forward "!\\[\\([^]]*\\)\\](\\([^)]+\\))" stop t)
+          (let* ((link-beg (match-beginning 0))
+                 (link-end (match-end 0))
+                 (url (match-string-no-properties 2))
+                 (file (kitty-gfx--markdown-resolve-url url)))
+            (if (kitty-gfx--markdown-in-comment-p link-beg)
+                (progn
+                  (kitty-gfx--log "markdown-display: skipping commented link at %d..%d"
+                                  link-beg link-end)
+                  (kitty-gfx-remove-images (line-beginning-position)
+                                           (line-end-position)))
+              (when (and file
+                         (file-exists-p file)
+                         (kitty-gfx--image-file-p file)
+                         (not (cl-some (lambda (ov)
+                                         (overlay-get ov 'kitty-gfx))
+                                       (overlays-in link-beg link-end))))
+                (kitty-gfx--log "markdown-display: found %s at %d..%d"
+                                file link-beg link-end)
+                (condition-case err
+                    (kitty-gfx--markdown-display-image file link-beg link-end)
+                  (error
+                   (kitty-gfx--log "markdown-display: ERROR %s: %s"
+                                   file (error-message-string err))
+                   (message "kitty-gfx: %s: %s"
+                            file (error-message-string err))))))))))))
+
+(defun kitty-gfx--markdown-display-advice (orig-fn &optional begin end)
+  "Around advice for `markdown-display-inline-images'."
+  (if (and kitty-graphics-mode (not (display-graphic-p)))
+      (progn
+        (kitty-gfx--log "advice: markdown-display-inline-images (terminal path)")
+        (kitty-gfx--markdown-display-inline-images-tty begin end))
+    (funcall orig-fn begin end)))
+
+(defun kitty-gfx--markdown-remove-advice (orig-fn &rest args)
+  "Around advice for `markdown-remove-inline-images'."
+  (when (and kitty-graphics-mode (not (display-graphic-p)))
+    (kitty-gfx--log "advice: markdown-remove-inline-images")
+    (kitty-gfx-remove-images))
+  (apply orig-fn args))
+
+(defun kitty-gfx--markdown-toggle-advice (orig-fn &rest args)
+  "Around advice for `markdown-toggle-inline-images'."
+  (if (and kitty-graphics-mode (not (display-graphic-p)))
+      (let ((has-images (cl-some (lambda (ov) (overlay-get ov 'kitty-gfx))
+                                 (overlays-in (point-min) (point-max)))))
+        (kitty-gfx--log "advice: markdown-toggle has-images=%s" has-images)
+        (if has-images
+            (kitty-gfx-remove-images)
+          (kitty-gfx--markdown-display-inline-images-tty)))
+    (apply orig-fn args)))
 
 ;;;; LaTeX fragment preview integration
 
@@ -7715,7 +7862,7 @@ translated to casty IPC commands."
 ;;;; Integration install/uninstall
 
 (defun kitty-gfx--install-integrations ()
-  "Install advice on org-mode, image-mode, shr, dirvish."
+  "Install advice on org-mode, markdown-mode, image-mode, shr, dirvish."
   (with-eval-after-load 'org
     (advice-add 'org-display-inline-images :around
                 #'kitty-gfx--org-display-advice)
@@ -7784,6 +7931,13 @@ translated to casty IPC commands."
                 #'kitty-gfx--markdown-overlays-fontify-image-advice)
     (advice-add 'markdown-overlays--fontify-image-file-path :around
                 #'kitty-gfx--markdown-overlays-fontify-image-file-path-advice))
+  (with-eval-after-load 'markdown-mode
+    (advice-add 'markdown-display-inline-images :around
+                #'kitty-gfx--markdown-display-advice)
+    (advice-add 'markdown-remove-inline-images :around
+                #'kitty-gfx--markdown-remove-advice)
+    (advice-add 'markdown-toggle-inline-images :around
+                #'kitty-gfx--markdown-toggle-advice))
   (with-eval-after-load 'dired
     (advice-add 'dired-find-file :around
                 #'kitty-gfx--dired-find-file-advice)
@@ -7827,6 +7981,9 @@ translated to casty IPC commands."
   (advice-remove 'shr-put-image #'kitty-gfx--shr-put-image-advice)
   (advice-remove 'markdown-overlays--fontify-image #'kitty-gfx--markdown-overlays-fontify-image-advice)
   (advice-remove 'markdown-overlays--fontify-image-file-path #'kitty-gfx--markdown-overlays-fontify-image-file-path-advice)
+  (advice-remove 'markdown-display-inline-images #'kitty-gfx--markdown-display-advice)
+  (advice-remove 'markdown-remove-inline-images #'kitty-gfx--markdown-remove-advice)
+  (advice-remove 'markdown-toggle-inline-images #'kitty-gfx--markdown-toggle-advice)
   (advice-remove 'dired-find-file #'kitty-gfx--dired-find-file-advice)
   (advice-remove 'dired-find-file-other-window
                  #'kitty-gfx--dired-find-file-other-window-advice)
