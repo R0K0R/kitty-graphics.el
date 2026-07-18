@@ -39,54 +39,54 @@ load:
 
 # Batch self-tests + dry-run heading rendering scenarios
 test-batch:
-    {{EMACS}} -Q -batch -l {{SRC}} --eval "(kitty-gfx-run-self-tests)"
+    {{EMACS}} -Q -batch -l {{SRC}} --eval "(kitty-graphics-run-self-tests)"
     {{EMACS}} -Q -batch -l {{SRC}} -l tests/test-heading-scenarios.el
 
 # Remove generated artifacts
 clean:
     rm -f {{SRC}}c
-    rm -rf /tmp/kitty-gfx-typst /tmp/kitty-gfx-sixel-*.six /tmp/kitty-gfx.log
+    rm -rf /tmp/kitty-graphics-typst /tmp/kitty-graphics-sixel-*.six /tmp/kitty-graphics.log
 
 # --- Interactive tests (open terminal Emacs) --------------------------------
 
-# Test typst inline equations (M-x kitty-gfx-typst-preview after open)
+# Test typst inline equations (M-x kitty-graphics-typst-preview after open)
 test-typst:
-    @echo ">> M-x kitty-gfx-typst-preview     to render"
-    @echo ">> M-x kitty-gfx-typst-clear-preview to clear"
+    @echo ">> M-x kitty-graphics-typst-preview     to render"
+    @echo ">> M-x kitty-graphics-typst-clear-preview to clear"
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        --eval "(setq kitty-gfx-debug t)" \
+        --eval "(setq kitty-graphics-debug t)" \
         tests/test-typst.typ
 
-# Test org-mode inline images -- C-c C-x C-v after open (fresh /tmp/kitty-gfx.log)
+# Test org-mode inline images -- C-c C-x C-v after open (fresh /tmp/kitty-graphics.log)
 test-org:
-    rm -f /tmp/kitty-gfx.log
-    @echo ">> fresh debug log: /tmp/kitty-gfx.log"
+    rm -f /tmp/kitty-graphics.log
+    @echo ">> fresh debug log: /tmp/kitty-graphics.log"
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t)" \
+        --eval "(setq kitty-graphics-debug t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        tests/test-kitty-gfx.org
-    @echo ">> debug log written to /tmp/kitty-gfx.log"
+        tests/test-kitty-graphics.org
+    @echo ">> debug log written to /tmp/kitty-graphics.log"
 
-# Scaled ORG headings (OSC 66), auto-applied, fresh /tmp/kitty-gfx.log
+# Scaled ORG headings (OSC 66), auto-applied, fresh /tmp/kitty-graphics.log
 test-headings:
-    rm -f /tmp/kitty-gfx.log
-    @echo ">> fresh debug log: /tmp/kitty-gfx.log"
+    rm -f /tmp/kitty-graphics.log
+    @echo ">> fresh debug log: /tmp/kitty-graphics.log"
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t kitty-gfx-heading-sizes-auto t)" \
+        --eval "(setq kitty-graphics-debug t kitty-graphics-heading-sizes-auto t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        tests/test-kitty-gfx.org
-    @echo ">> debug log written to /tmp/kitty-gfx.log"
+        tests/test-kitty-graphics.org
+    @echo ">> debug log written to /tmp/kitty-graphics.log"
 
-# Test image-mode rendering (starts a fresh /tmp/kitty-gfx.log for this run)
+# Test image-mode rendering (starts a fresh /tmp/kitty-graphics.log for this run)
 test-image:
-    rm -f /tmp/kitty-gfx.log
-    @echo ">> fresh debug log: /tmp/kitty-gfx.log"
+    rm -f /tmp/kitty-graphics.log
+    @echo ">> fresh debug log: /tmp/kitty-graphics.log"
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t)" \
+        --eval "(setq kitty-graphics-debug t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
         tests/test-image.png
-    @echo ">> debug log written to /tmp/kitty-gfx.log"
+    @echo ">> debug log written to /tmp/kitty-graphics.log"
 
 # Test doc-view / PDF rendering
 test-pdf:
@@ -100,10 +100,10 @@ test-markdown:
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
         tests/test-markdown.md
 
-# Test shr image scaling in eww (kitty-gfx-shr-scale 'fit); pass a different url=...
+# Test shr image scaling in eww (kitty-graphics-shr-scale 'fit); pass a different url=...
 test-shr url="https://en.wikipedia.org/wiki/Cat":
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-shr-scale 'fit)" \
+        --eval "(setq kitty-graphics-shr-scale 'fit)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
         --eval "(eww \"{{url}}\")"
 
@@ -111,7 +111,7 @@ test-shr url="https://en.wikipedia.org/wiki/Cat":
 test-latex:
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        tests/test-kitty-gfx.org
+        tests/test-kitty-graphics.org
 
 # One-shot daemon test.  Starts an ISOLATED daemon on socket `kgfx-test'
 # (your real daemon is untouched) with the LOCAL kitty-graphics.el, connects
@@ -119,10 +119,10 @@ test-latex:
 # Just type `M-x kill-emacs' (or close the client) and everything shuts down.
 # Reuses an already-running kgfx-test daemon, so a SECOND terminal running
 # `just test-daemon' attaches a second client for multi-tty testing.
-#   just test-daemon                            # opens tests/test-kitty-gfx.org
+#   just test-daemon                            # opens tests/test-kitty-graphics.org
 #   just test-daemon file=tests/test-image.png  # open a different file
 #   just test-daemon browser=1                  # also enable the casty browser
-test-daemon file="tests/test-kitty-gfx.org" browser="0":
+test-daemon file="tests/test-kitty-graphics.org" browser="0":
     #!/usr/bin/env bash
     set -u
     SOCK=kgfx-test
@@ -134,7 +134,7 @@ test-daemon file="tests/test-kitty-gfx.org" browser="0":
         echo ">> starting daemon '$SOCK' (local {{SRC}}, debug log: just log)"
         {{EMACS}} -Q --daemon=$SOCK \
             -L "$(pwd)" -l "{{SRC}}" \
-            --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t kitty-gfx-enable-browser $enable_browser)" \
+            --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t kitty-graphics-enable-browser $enable_browser)" \
             --eval "(add-hook 'server-after-make-frame-hook (lambda () (when (and (not kitty-graphics-mode) (not (display-graphic-p))) (kitty-graphics-mode 1))))"
         STARTED=1
     else
@@ -180,19 +180,19 @@ test-daemon-mpv video="tests/casty-demo.mp4":
         echo ">> starting daemon '$SOCK' (local {{SRC}}, debug log: just log)"
         {{EMACS}} -Q --daemon=$SOCK \
             -L "$(pwd)" -l "{{SRC}}" \
-            --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t kitty-gfx-enable-browser t)" \
+            --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t kitty-graphics-enable-browser t)" \
             --eval "(add-hook 'server-after-make-frame-hook (lambda () (when (and (not kitty-graphics-mode) (not (display-graphic-p))) (kitty-graphics-mode 1))))"
         STARTED=1
     else
         echo ">> attaching to running daemon '$SOCK'"
         STARTED=0
     fi
-    echo ">> Stop: M-x kitty-gfx-stop-video   Pause: M-x kitty-gfx-toggle-video"
+    echo ">> Stop: M-x kitty-graphics-stop-video   Pause: M-x kitty-graphics-toggle-video"
     echo ">> M-x kill-emacs stops the daemon AND the client."
     # Defer the play call by a tick so the client frame is fully up and the
     # server-after-make-frame-hook has detected the backend on this terminal.
     TERM=xterm-256color emacsclient -s "$SOCK" -t \
-        --eval "(run-with-timer 0.5 nil (lambda () (unless kitty-graphics-mode (kitty-graphics-mode 1)) (kitty-gfx-play-video \"$video\")))" || true
+        --eval "(run-with-timer 0.5 nil (lambda () (unless kitty-graphics-mode (kitty-graphics-mode 1)) (kitty-graphics-play-video \"$video\")))" || true
     if [ "$STARTED" = "1" ]; then
         emacsclient -s "$SOCK" -e '(kill-emacs)' >/dev/null 2>&1 || true
         pkill -f "emacs.*--daemon=$SOCK" 2>/dev/null || true
@@ -230,7 +230,7 @@ test-daemon-browser url="https://example.com":
         echo ">> starting daemon '$SOCK' (local {{SRC}}, debug log: just log)"
         {{EMACS}} -Q --daemon=$SOCK \
             -L "$(pwd)" -l "{{SRC}}" \
-            --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t kitty-gfx-enable-browser t)" \
+            --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t kitty-graphics-enable-browser t)" \
             --eval "(add-hook 'server-after-make-frame-hook (lambda () (when (and (not kitty-graphics-mode) (not (display-graphic-p))) (kitty-graphics-mode 1))))"
         STARTED=1
     else
@@ -239,12 +239,12 @@ test-daemon-browser url="https://example.com":
     fi
     # Point the daemon at the resolved casty/browser (covers the attach case,
     # where the daemon was started without these set).
-    emacsclient -s "$SOCK" -e "(setq kitty-gfx-enable-browser t kitty-gfx-casty-program \"$casty\")" >/dev/null 2>&1 || true
-    [ -n "$chrome" ] && emacsclient -s "$SOCK" -e "(setq kitty-gfx-casty-chrome \"$chrome\")" >/dev/null 2>&1 || true
+    emacsclient -s "$SOCK" -e "(setq kitty-graphics-enable-browser t kitty-graphics-casty-program \"$casty\")" >/dev/null 2>&1 || true
+    [ -n "$chrome" ] && emacsclient -s "$SOCK" -e "(setq kitty-graphics-casty-chrome \"$chrome\")" >/dev/null 2>&1 || true
     echo ">> Navigate: j/k scroll  C-f/C-b page  H/L back/forward  r reload  o open  q quit"
     echo ">> M-x kill-emacs stops the daemon AND the client."
     TERM=xterm-256color emacsclient -s "$SOCK" -t \
-        --eval "(run-with-timer 0.5 nil (lambda () (unless kitty-graphics-mode (kitty-graphics-mode 1)) (kitty-gfx-browse \"$url\")))" || true
+        --eval "(run-with-timer 0.5 nil (lambda () (unless kitty-graphics-mode (kitty-graphics-mode 1)) (kitty-graphics-browse \"$url\")))" || true
     if [ "$STARTED" = "1" ]; then
         emacsclient -s "$SOCK" -e '(kill-emacs)' >/dev/null 2>&1 || true
         pkill -f "emacs.*--daemon=$SOCK" 2>/dev/null || true
@@ -262,8 +262,8 @@ test-daemon-browser url="https://example.com":
 # so it never collides with your real daemon.
 #   just test-daemon-myconfig                              # opens an org file
 #   just test-daemon-myconfig file=tests/test-document.pdf # then it is doc-view
-#   then:  M-x kitty-gfx-browse   /   M-x kitty-gfx-play-video
-test-daemon-myconfig file="tests/test-kitty-gfx.org":
+#   then:  M-x kitty-graphics-browse   /   M-x kitty-graphics-play-video
+test-daemon-myconfig file="tests/test-kitty-graphics.org":
     #!/usr/bin/env bash
     set -u
     SOCK=kgfx-myconfig
@@ -281,13 +281,13 @@ test-daemon-myconfig file="tests/test-kitty-gfx.org":
         echo ">> starting daemon '$SOCK' with YOUR ~/.emacs.d config + LOCAL {{SRC}}"
         echo ">> casty: $casty   chrome: ${chrome:-<auto>}"
         {{EMACS}} --daemon=$SOCK \
-            --eval "(add-hook 'server-after-make-frame-hook (lambda () (unless (display-graphic-p) (load \"$here/{{SRC}}\") (setq kitty-gfx-debug t kitty-gfx-enable-video t kitty-gfx-enable-browser t kitty-gfx-casty-program \"$casty\") (when (> (length \"$chrome\") 0) (setq kitty-gfx-casty-chrome \"$chrome\")) (unless kitty-graphics-mode (kitty-graphics-mode 1)))) t)"
+            --eval "(add-hook 'server-after-make-frame-hook (lambda () (unless (display-graphic-p) (load \"$here/{{SRC}}\") (setq kitty-graphics-debug t kitty-graphics-enable-video t kitty-graphics-enable-browser t kitty-graphics-casty-program \"$casty\") (when (> (length \"$chrome\") 0) (setq kitty-graphics-casty-chrome \"$chrome\")) (unless kitty-graphics-mode (kitty-graphics-mode 1)))) t)"
         STARTED=1
     else
         echo ">> attaching to running daemon '$SOCK'"
         STARTED=0
     fi
-    echo ">> M-x kitty-gfx-browse  /  M-x kitty-gfx-play-video  to test."
+    echo ">> M-x kitty-graphics-browse  /  M-x kitty-graphics-play-video  to test."
     echo ">> M-x kill-emacs stops the daemon AND the client; casty log: C-x b *kitty-casty-log*"
     TERM=xterm-256color emacsclient -s "$SOCK" -t "$file" || true
     if [ "$STARTED" = "1" ]; then
@@ -319,7 +319,7 @@ tmux:
         tmux set-option -g allow-passthrough on
         tmux set-option -as terminal-features "*:sixel"
         exec env TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-            --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t)" \
+            --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t)" \
             --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)"
     fi
     SESSION=kgfx
@@ -328,7 +328,7 @@ tmux:
     tmux -S "$SOCKET" kill-session -t "$SESSION" 2>/dev/null || true
     tmux -S "$SOCKET" new-session -d -s "$SESSION" -x 220 -y 50 \
         env TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l "$(pwd)/{{SRC}}" \
-            --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t)" \
+            --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t)" \
             --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)"
     tmux -S "$SOCKET" set-option -t "$SESSION" -g allow-passthrough on
     tmux -S "$SOCKET" set-option -t "$SESSION" -as terminal-features "*:sixel"
@@ -355,7 +355,7 @@ test-dirvish dir="~":
     mkdir -p "$INIT_DIR"
     echo ">> Kitty terminal required.  Init dir: $INIT_DIR"
     echo ">> Auto-preview enabled: arrow over images / videos -- side window shows the thumbnail."
-    echo ">> Manual full playback: M-x kitty-gfx-dired-play-video"
+    echo ">> Manual full playback: M-x kitty-graphics-dired-play-video"
     exec env TERM={{TERM_}} {{EMACS}} -nw -Q \
         --init-directory "$INIT_DIR" \
         --eval "(progn \
@@ -369,14 +369,14 @@ test-dirvish dir="~":
                     (package-install 'dirvish)))" \
         -L "$(pwd)" \
         -l "{{SRC}}" \
-        --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t)" \
+        --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        --eval "(add-hook 'dired-mode-hook #'kitty-gfx-dired-auto-preview-mode)" \
+        --eval "(add-hook 'dired-mode-hook #'kitty-graphics-dired-auto-preview-mode)" \
         --eval "(require 'dirvish)" \
         --eval "(dirvish-override-dired-mode 1)" \
         --eval "(dirvish \"$dir\")"
 
-# TEMP: dirvish + kitty-gfx loaded against the user's REAL ~/.emacs.d
+# TEMP: dirvish + kitty-graphics loaded against the user's REAL ~/.emacs.d
 # config (config.org) instead of the throwaway init dir.  Useful for
 # iterating on the kitty-media dispatcher without restarting the
 # main Emacs.  Forces the local kitty-graphics.el over the elpaca build
@@ -396,21 +396,21 @@ test-dirvish-myconfig dir="~":
     echo ">> Local $(pwd)/{{SRC}} overrides the elpaca build."
     exec env TERM={{TERM_}} {{EMACS}} -nw \
         -L "$(pwd)" \
-        --eval "(with-eval-after-load 'kitty-graphics (load \"$(pwd)/{{SRC}}\") (setq kitty-gfx-debug t))" \
+        --eval "(with-eval-after-load 'kitty-graphics (load \"$(pwd)/{{SRC}}\") (setq kitty-graphics-debug t))" \
         --eval "(dirvish \"$dir\")"
 
 # Test inline mpv video playback (Kitty terminal only, requires mpv).
 # Opens terminal Emacs with video integration enabled, then auto-plays
 # the file given as positional arg (or drops into scratch buffer when
-# omitted, ready for `M-x kitty-gfx-play-video').
-#   just test-mpv                       # manual: M-x kitty-gfx-play-video
+# omitted, ready for `M-x kitty-graphics-play-video').
+#   just test-mpv                       # manual: M-x kitty-graphics-play-video
 #   just test-mpv ~/Untitled.mp4        # auto-play (tilde expanded)
 test-mpv video="":
     #!/usr/bin/env bash
     set -eu
     echo ">> Requires Kitty terminal + mpv on PATH."
     echo ">> Sixel terminals work too (experimental) when mpv is built with libsixel (--vo=sixel)."
-    echo ">> Stop: M-x kitty-gfx-stop-video     Pause: M-x kitty-gfx-toggle-video"
+    echo ">> Stop: M-x kitty-graphics-stop-video     Pause: M-x kitty-graphics-toggle-video"
     video={{video}}
     # Tolerate `just test-mpv video=PATH' (just treats it as a positional
     # value that happens to start with `video=', so strip the prefix).
@@ -425,9 +425,9 @@ test-mpv video="":
         video=$(realpath "$video")
     fi
     exec env TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t kitty-gfx-enable-video t)" \
+        --eval "(setq kitty-graphics-debug t kitty-graphics-enable-video t)" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        --eval "(when (> (length \"$video\") 0) (kitty-gfx-play-video \"$video\"))"
+        --eval "(when (> (length \"$video\") 0) (kitty-graphics-play-video \"$video\"))"
 
 # Launch terminal Emacs with the inline casty browser (Kitty only).
 # casty is auto-resolved to ../casty/bin/casty.js; a Chromium-based browser
@@ -458,24 +458,24 @@ test-browser url="https://example.com":
     echo ">> casty:  $casty"
     echo ">> chrome: ${chrome:-<casty default / auto-install Chrome Headless Shell>}"
     exec env TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t kitty-gfx-enable-browser t)" \
-        --eval "(setq kitty-gfx-casty-program \"$casty\")" \
-        --eval "(when (> (length \"$chrome\") 0) (setq kitty-gfx-casty-chrome \"$chrome\"))" \
+        --eval "(setq kitty-graphics-debug t kitty-graphics-enable-browser t)" \
+        --eval "(setq kitty-graphics-casty-program \"$casty\")" \
+        --eval "(when (> (length \"$chrome\") 0) (setq kitty-graphics-casty-chrome \"$chrome\"))" \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
-        --eval "(kitty-gfx-browse \"$url\")"
+        --eval "(kitty-graphics-browse \"$url\")"
 
 # --- Headless typst checks --------------------------------------------------
 
 # Compile a typst fragment headlessly, print the PNG path
 typst-render fragment="$x^2 + y^2 = z^2$":
     {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(progn \
-        (setq kitty-gfx-debug t) \
-        (let ((png (kitty-gfx--typst-render "{{fragment}}"))) \
+        (setq kitty-graphics-debug t) \
+        (let ((png (kitty-graphics--typst-render "{{fragment}}"))) \
           (princ (format "png=%s exists=%s\n" png (and png (file-exists-p png))))))'
 
 # Render fragment and open PNG with xdg-open
 typst-show fragment="$integral_(-oo)^(+oo) e^(-x^2) dif x = sqrt(pi)$":
-    @png=$({{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(princ (kitty-gfx--typst-render "{{fragment}}"))' 2>/dev/null); \
+    @png=$({{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(princ (kitty-graphics--typst-render "{{fragment}}"))' 2>/dev/null); \
         echo "png=$png"; \
         [ -n "$png" ] && xdg-open "$png"
 
@@ -483,36 +483,36 @@ typst-show fragment="$integral_(-oo)^(+oo) e^(-x^2) dif x = sqrt(pi)$":
 
 # Show resolved sixel encoder (auto-detect: img2sixel > magick > convert)
 sixel-encoder:
-    {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(princ (format "%S\n" (kitty-gfx--sixel-resolve-encoder)))'
+    {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(princ (format "%S\n" (kitty-graphics--sixel-resolve-encoder)))'
 
 # Encode tests/test-image.png to sixel headlessly, report payload size.
 # Override encoder with: just sixel-encode "img2sixel"
 sixel-encode encoder="":
     {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(progn \
-        (setq kitty-gfx-debug t) \
+        (setq kitty-graphics-debug t) \
         (when (> (length "{{encoder}}") 0) \
-          (setq kitty-gfx-sixel-encoder-program "{{encoder}}")) \
-        (princ (format "encoder=%S\n" (kitty-gfx--sixel-resolve-encoder))) \
-        (let ((d (kitty-gfx--sixel-encode "tests/test-image.png" 20 10))) \
+          (setq kitty-graphics-sixel-encoder-program "{{encoder}}")) \
+        (princ (format "encoder=%S\n" (kitty-graphics--sixel-resolve-encoder))) \
+        (let ((d (kitty-graphics--sixel-encode "tests/test-image.png" 20 10))) \
           (princ (format "bytes=%s\n" (and d (length d))))))'
     @echo "--- log tail ---"
-    @tail -3 /tmp/kitty-gfx.log 2>/dev/null || true
+    @tail -3 /tmp/kitty-graphics.log 2>/dev/null || true
 
-# Verify timeout watchdog kills a hung encoder within `kitty-gfx-sixel-encoder-timeout'
+# Verify timeout watchdog kills a hung encoder within `kitty-graphics-sixel-encoder-timeout'
 sixel-timeout-test:
     @printf '#!/usr/bin/env bash\nsleep 60\n' > /tmp/kgfx-fake-encoder.sh
     @chmod +x /tmp/kgfx-fake-encoder.sh
     time {{EMACS}} -Q -batch -L . -l {{SRC}} --eval '(progn \
-        (setq kitty-gfx-debug t \
-              kitty-gfx-sixel-encoder-program "/tmp/kgfx-fake-encoder.sh" \
-              kitty-gfx-sixel-encoder-timeout 1.0) \
+        (setq kitty-graphics-debug t \
+              kitty-graphics-sixel-encoder-program "/tmp/kgfx-fake-encoder.sh" \
+              kitty-graphics-sixel-encoder-timeout 1.0) \
         (with-temp-buffer \
           (set-buffer-multibyte nil) \
-          (princ (format "ok=%S\n" (kitty-gfx--sixel-run-encoder \
+          (princ (format "ok=%S\n" (kitty-graphics--sixel-run-encoder \
                                     "/tmp/kgfx-fake-encoder.sh" 1.0 \
                                     (current-buffer) nil)))))'
     @echo "--- log tail ---"
-    @tail -3 /tmp/kitty-gfx.log 2>/dev/null || true
+    @tail -3 /tmp/kitty-graphics.log 2>/dev/null || true
     @rm -f /tmp/kgfx-fake-encoder.sh
 
 # --- Interactive sixel tests (run inside a sixel-capable terminal) ----------
@@ -521,8 +521,8 @@ sixel-timeout-test:
 test-sixel-image encoder="":
     @echo ">> Run inside foot, Konsole, mintty, mlterm, or WezTerm."
     TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-        --eval "(setq kitty-gfx-debug t kitty-gfx-preferred-protocol 'sixel)" \
-        --eval '(when (> (length "{{encoder}}") 0) (setq kitty-gfx-sixel-encoder-program "{{encoder}}"))' \
+        --eval "(setq kitty-graphics-debug t kitty-graphics-preferred-protocol 'sixel)" \
+        --eval '(when (> (length "{{encoder}}") 0) (setq kitty-graphics-sixel-encoder-program "{{encoder}}"))' \
         --eval "(when (bound-and-true-p kitty-graphics-mode) (kitty-graphics-mode -1))" --eval "(kitty-graphics-mode 1)" \
         tests/test-image.png
 
@@ -536,16 +536,16 @@ test-sixel-tmux encoder="":
     if [ -n "${TMUX:-}" ]; then
         echo ">> Already inside tmux -- running emacs directly in this pane."
         exec env TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-            --eval '(setq kitty-gfx-debug t kitty-gfx-preferred-protocol (quote sixel))' \
-            --eval '(when (> (length "{{encoder}}") 0) (setq kitty-gfx-sixel-encoder-program "{{encoder}}"))' \
+            --eval '(setq kitty-graphics-debug t kitty-graphics-preferred-protocol (quote sixel))' \
+            --eval '(when (> (length "{{encoder}}") 0) (setq kitty-graphics-sixel-encoder-program "{{encoder}}"))' \
             --eval '(kitty-graphics-mode 1)' \
             tests/test-image.png
     else
         echo ">> Outer terminal must be sixel-capable; spawning fresh tmux session."
         exec tmux new-session -As kgfx-sixel-test \
             "TERM={{TERM_}} {{EMACS}} -nw {{QFLAG}} -l {{SRC}} \
-                --eval '(setq kitty-gfx-debug t kitty-gfx-preferred-protocol (quote sixel))' \
-                --eval '(when (> (length \"{{encoder}}\") 0) (setq kitty-gfx-sixel-encoder-program \"{{encoder}}\"))' \
+                --eval '(setq kitty-graphics-debug t kitty-graphics-preferred-protocol (quote sixel))' \
+                --eval '(when (> (length \"{{encoder}}\") 0) (setq kitty-graphics-sixel-encoder-program \"{{encoder}}\"))' \
                 --eval '(kitty-graphics-mode 1)' tests/test-image.png"
     fi
 
@@ -559,7 +559,7 @@ test-sixel-tmux encoder="":
 # Profiler is pre-armed — once Emacs is open:
 #   1. switch to *scratch*  (C-x b RET)
 #   2. mash keys for ~10s
-#   3. M-x profiler-report  — look for kitty-gfx--on-redisplay et al.
+#   3. M-x profiler-report  — look for kitty-graphics--on-redisplay et al.
 #   4. M-x profiler-stop
 test-ssh host="moneyspread":
     #!/usr/bin/env bash
@@ -574,7 +574,7 @@ test-ssh host="moneyspread":
     ssh -t {{host}} "cd $REMOTE_DIR && nix shell nixpkgs#emacs nixpkgs#imagemagick nixpkgs#libsixel --command \
         env TERM={{TERM_}} TERM_PROGRAM=kitty KITTY_PID=ssh emacs -nw -Q \
         -l $REMOTE_DIR/{{SRC}} \
-        --eval '(setq kitty-gfx-debug t kitty-gfx-preferred-protocol (quote kitty))' \
+        --eval '(setq kitty-graphics-debug t kitty-graphics-preferred-protocol (quote kitty))' \
         --eval '(kitty-graphics-mode 1)' \
         --eval '(profiler-start (quote cpu))'"
 
@@ -595,12 +595,12 @@ test-ssh-baseline host="moneyspread":
     ssh -t {{host}} "cd $REMOTE_DIR && nix shell nixpkgs#emacs nixpkgs#imagemagick nixpkgs#libsixel --command \
         env TERM={{TERM_}} TERM_PROGRAM=kitty KITTY_PID=ssh emacs -nw -Q \
         -l $REMOTE_DIR/{{SRC}} \
-        --eval '(setq kitty-gfx-debug t kitty-gfx-preferred-protocol (quote kitty))' \
+        --eval '(setq kitty-graphics-debug t kitty-graphics-preferred-protocol (quote kitty))' \
         --eval '(kitty-graphics-mode 1)' \
         --eval '(profiler-start (quote cpu))'"
 
 # --- Logs -------------------------------------------------------------------
 
-# Tail the kitty-gfx debug log (set kitty-gfx-debug to t to populate)
+# Tail the kitty-graphics debug log (set kitty-graphics-debug to t to populate)
 log:
-    tail -f /tmp/kitty-gfx.log
+    tail -f /tmp/kitty-graphics.log

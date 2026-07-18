@@ -17,13 +17,13 @@ Version 1.1.0. Requires Emacs >= 27.1.
 
 [[file:assets/text-headings.gif]]
 
-Heading rendering was massively reworked and is now stable for reading and navigating files. Editing scaled headings works far better than before (the overlay stays put and a debounced rescan re-renders in place as you type), but for now it is best used to /view/ files rather than to actively edit them: heavy editing re-renders on every debounce, and only one window per buffer renders the scaled headings while others show plain text. Toggle ~kitty-gfx-org-heading-sizes~ off when you switch to editing.
+Heading rendering was massively reworked and is now stable for reading and navigating files. Editing scaled headings works far better than before (the overlay stays put and a debounced rescan re-renders in place as you type), but for now it is best used to /view/ files rather than to actively edit them: heavy editing re-renders on every debounce, and only one window per buffer renders the scaled headings while others show plain text. Toggle ~kitty-graphics-org-heading-sizes~ off when you switch to editing.
 
 *shr image scaling (eww, elfeed, mu4e, gnus):*
 
 [[file:assets/shr-demo.gif]]
 
-With ~kitty-gfx-shr-scale~ set to ~fit~ (or a float fraction), inline images in eww/elfeed/mu4e/gnus are scaled into a window-relative box instead of dominating the buffer at full natural size.
+With ~kitty-graphics-shr-scale~ set to ~fit~ (or a float fraction), inline images in eww/elfeed/mu4e/gnus are scaled into a window-relative box instead of dominating the buffer at full natural size.
 
 *PDF and document viewing (doc-view):*
 
@@ -72,10 +72,10 @@ Integrations and capabilities:
 - A Sixel encoder on ~PATH~, /required/ for the Sixel backend.
   - *Strongly recommended*: ~img2sixel~ from [[https://github.com/saitoha/libsixel][libsixel]] (Nix: ~nixpkgs#libsixel~). Roughly =2.2x= smaller payloads and =~10x= faster than ImageMagick, which matters a lot in tmux where every refresh re-emits the full DCS payload.
   - *Fallback*: ImageMagick 7 (~magick~) or 6 (~convert~). Works, but slower; on long sessions and in tmux you may notice flicker on redraw.
-  - Override the auto-detect order via ~kitty-gfx-sixel-encoder-program~. If neither is on ~PATH~ the Sixel backend logs ~no encoder found~ and silently produces no image, so make sure one is installed before launching Emacs.
+  - Override the auto-detect order via ~kitty-graphics-sixel-encoder-program~. If neither is on ~PATH~ the Sixel backend logs ~no encoder found~ and silently produces no image, so make sure one is installed before launching Emacs.
 - ImageMagick (~magick~ / ~identify~) is still needed for non-PNG formats on the Kitty backend (JPEG/WebP/SVG/TIFF/BMP -> PNG conversion) and for the dimension probe
 - For org heading text sizing (OSC 66): [[https://sw.kovidgoyal.net/kitty/][Kitty]] >= 0.40.0, currently the only terminal implementing OSC 66 with scale support
-- For inline video: [[https://mpv.io/][mpv]] >= 0.36.0 with ~--vo=kitty~ support (enable with ~kitty-gfx-enable-video~); on the Sixel backend, an mpv built with libsixel (~--vo=sixel~, experimental)
+- For inline video: [[https://mpv.io/][mpv]] >= 0.36.0 with ~--vo=kitty~ support (enable with ~kitty-graphics-enable-video~); on the Sixel backend, an mpv built with libsixel (~--vo=sixel~, experimental)
 - For typst math preview: the [[https://typst.app/][~typst~]] CLI on ~PATH~
 - For LaTeX preview: a TeX distribution with ~dvipng~ (e.g. ~texlive~)
 - For doc-view: ~ghostscript~ (for PDF), ~dvipng~ (for DVI); the same tools as GUI Emacs
@@ -111,7 +111,7 @@ stops its playback.
   :straight (:host github :repo "cashmeredev/kitty-graphics.el")
   :ensure t
   :config
-  (setq kitty-gfx-enable-video t)   ; optional: inline mpv playback
+  (setq kitty-graphics-enable-video t)   ; optional: inline mpv playback
   (kitty-graphics-setup))
 #+end_src
 
@@ -135,13 +135,13 @@ For a one-off interactive terminal session you can also toggle the global minor 
 
 Then:
 - In org-mode: toggle inline images with =C-c C-x C-v=
-- In org-mode: scale headings with =M-x kitty-gfx-org-heading-sizes= (or set ~kitty-gfx-heading-sizes-auto~ to apply automatically). Requires Kitty >= 0.40.0
+- In org-mode: scale headings with =M-x kitty-graphics-org-heading-sizes= (or set ~kitty-graphics-heading-sizes-auto~ to apply automatically). Requires Kitty >= 0.40.0
 - In org-mode: preview LaTeX fragments with =C-c C-x C-l= (requires a LaTeX installation and =dvipng=)
-- Typst math: =M-x kitty-gfx-typst-preview= renders =$...$= fragments (region or buffer); =kitty-gfx-typst-clear-preview= removes them
-- Play a video: =M-x kitty-gfx-play-video= (needs ~kitty-gfx-enable-video~ and mpv). While playing: =SPC= pause/resume, =q= stop and go back, =?= help
+- Typst math: =M-x kitty-graphics-typst-preview= renders =$...$= fragments (region or buffer); =kitty-graphics-typst-clear-preview= removes them
+- Play a video: =M-x kitty-graphics-play-video= (needs ~kitty-graphics-enable-video~ and mpv). While playing: =SPC= pause/resume, =q= stop and go back, =?= help
 - Open a PDF: =doc-view-mode= renders pages via Kitty (=n= / =p= to navigate, =+= / =-= / =0= to zoom)
 - Open an image file: =image-mode= displays it via Kitty; =+= / == zoom in, =-= zoom out, =0= reset
-- In dired: press =P= on an image for a side-window preview; =kitty-gfx-dired-play-video= plays the video at point inline
+- In dired: press =P= on an image for a side-window preview; =kitty-graphics-dired-play-video= plays the video at point inline
 - In dirvish: image and video previews work automatically (no extra config)
 - In eww/mu4e/gnus: HTML images render inline
 
@@ -153,33 +153,33 @@ Then:
 |---------------------------+------------------------------------|
 | ~kitty-graphics-setup~    | Enable, daemon- and tty-aware      |
 | ~kitty-graphics-mode~     | Toggle the global minor mode       |
-| ~kitty-gfx-display-image~ | Display an image file at point     |
-| ~kitty-gfx-remove-images~ | Remove images in region or buffer  |
-| ~kitty-gfx-clear-all~     | Remove all images from all buffers |
+| ~kitty-graphics-display-image~ | Display an image file at point     |
+| ~kitty-graphics-remove-images~ | Remove images in region or buffer  |
+| ~kitty-graphics-clear-all~     | Remove all images from all buffers |
 
 *** Org & text sizing
 
 | Command                       | Description                              |
 |-------------------------------+------------------------------------------|
-| ~kitty-gfx-org-heading-sizes~ | Toggle scaled org heading sizes (OSC 66) |
+| ~kitty-graphics-org-heading-sizes~ | Toggle scaled org heading sizes (OSC 66) |
 
 *** Typst math
 
 | Command                         | Description                                    |
 |---------------------------------+------------------------------------------------|
-| ~kitty-gfx-typst-preview~       | Render =$...$= math fragments as inline images |
-| ~kitty-gfx-typst-clear-preview~ | Remove typst preview overlays                  |
+| ~kitty-graphics-typst-preview~       | Render =$...$= math fragments as inline images |
+| ~kitty-graphics-typst-clear-preview~ | Remove typst preview overlays                  |
 
 *** Video
 
 | Command                         | Key | Description                        |
 |---------------------------------+-----+------------------------------------|
-| ~kitty-gfx-play-video~          |     | Play a video file inline via mpv   |
-| ~kitty-gfx-toggle-video~        | SPC | Pause/resume playback              |
-| ~kitty-gfx-stop-video~          |     | Stop inline video playback         |
-| ~kitty-gfx-stop-video-and-back~ | q   | Stop and switch to previous buffer |
-| ~kitty-gfx-video-help~          | ?   | Echo the inline-video keymap       |
-| ~kitty-gfx-dired-play-video~    |     | Play the video at point in dired   |
+| ~kitty-graphics-play-video~          |     | Play a video file inline via mpv   |
+| ~kitty-graphics-toggle-video~        | SPC | Pause/resume playback              |
+| ~kitty-graphics-stop-video~          |     | Stop inline video playback         |
+| ~kitty-graphics-stop-video-and-back~ | q   | Stop and switch to previous buffer |
+| ~kitty-graphics-video-help~          | ?   | Echo the inline-video keymap       |
+| ~kitty-graphics-dired-play-video~    |     | Play the video at point in dired   |
 
 The =SPC= / =q= / =?= keys are active on the video overlay while a video plays.
 
@@ -187,25 +187,25 @@ The =SPC= / =q= / =?= keys are active on the video overlay while a video plays.
 
 | Command                         | Key   | Description |
 |---------------------------------+-------+-------------|
-| ~kitty-gfx-image-increase-size~ | + / = | Zoom in     |
-| ~kitty-gfx-image-decrease-size~ | -     | Zoom out    |
-| ~kitty-gfx-image-reset-size~    | 0     | Reset zoom  |
+| ~kitty-graphics-image-increase-size~ | + / = | Zoom in     |
+| ~kitty-graphics-image-decrease-size~ | -     | Zoom out    |
+| ~kitty-graphics-image-reset-size~    | 0     | Reset zoom  |
 
 *** Dired / dirvish
 
 | Command                             | Key | Description                                   |
 |-------------------------------------+-----+-----------------------------------------------|
-| ~kitty-gfx-dired-preview~           | P   | Preview image at point in a side window       |
-| ~kitty-gfx-dired-auto-preview-mode~ |     | Auto-preview the file at point on cursor move |
+| ~kitty-graphics-dired-preview~           | P   | Preview image at point in a side window       |
+| ~kitty-graphics-dired-auto-preview-mode~ |     | Auto-preview the file at point on cursor move |
 
 *** Debugging
 
 | Command                            | Description                                        |
 |------------------------------------+----------------------------------------------------|
-| ~kitty-gfx-doctor~                 | Diagnostic report: backend, capabilities, binaries |
-| ~kitty-gfx-debug-state~            | Dump critical state to a debug buffer              |
-| ~kitty-gfx-debug-overlay-at-point~ | Dump info about the image overlay at point         |
-| ~kitty-gfx-run-self-tests~         | Run batch-safe self-tests                          |
+| ~kitty-graphics-doctor~                 | Diagnostic report: backend, capabilities, binaries |
+| ~kitty-graphics-debug-state~            | Dump critical state to a debug buffer              |
+| ~kitty-graphics-debug-overlay-at-point~ | Dump info about the image overlay at point         |
+| ~kitty-graphics-run-self-tests~         | Run batch-safe self-tests                          |
 
 ** Customization
 
@@ -213,100 +213,100 @@ The =SPC= / =q= / =?= keys are active on the video overlay while a video plays.
 
 | Variable                       | Default | Description                                |
 |--------------------------------+---------+--------------------------------------------|
-| ~kitty-gfx-preferred-protocol~ |    auto | Graphics protocol: auto, kitty, or sixel   |
-| ~kitty-gfx-max-width~          |     120 | Maximum inline image width in columns      |
-| ~kitty-gfx-max-height~         |      40 | Maximum inline image height in rows        |
-| ~kitty-gfx-chunk-size~         |    4096 | Max base64 chunk size for image transfer   |
-| ~kitty-gfx-render-delay~       |   0.016 | Debounce delay before re-rendering (s)     |
-| ~kitty-gfx-cache-size~         |      64 | Max images kept in the terminal-side cache |
-| ~kitty-gfx-debug~              |     nil | Log debug info to the debug buffer / log   |
+| ~kitty-graphics-preferred-protocol~ |    auto | Graphics protocol: auto, kitty, or sixel   |
+| ~kitty-graphics-max-width~          |     120 | Maximum inline image width in columns      |
+| ~kitty-graphics-max-height~         |      40 | Maximum inline image height in rows        |
+| ~kitty-graphics-chunk-size~         |    4096 | Max base64 chunk size for image transfer   |
+| ~kitty-graphics-render-delay~       |   0.016 | Debounce delay before re-rendering (s)     |
+| ~kitty-graphics-cache-size~         |      64 | Max images kept in the terminal-side cache |
+| ~kitty-graphics-debug~              |     nil | Log debug info to the debug buffer / log   |
 
 *** Performance & conversion
 
 | Variable                       | Default  | Description                                                        |
 |--------------------------------+----------+--------------------------------------------------------------------|
-| ~kitty-gfx-async-conversion~   | t        | Convert non-PNG images to PNG in the background, off the main loop |
-| ~kitty-gfx-process-timeout~    | 15.0     | Seconds before a hung magick/identify/ffmpeg/typst call is killed  |
-| ~kitty-gfx-skip-clean-refresh~ | t        | Skip refreshing when no visible window content changed             |
-| ~kitty-gfx-base64-cache-bytes~ | 67108864 | Max bytes of base64-encoded image data cached in memory (64 MiB)   |
+| ~kitty-graphics-async-conversion~   | t        | Convert non-PNG images to PNG in the background, off the main loop |
+| ~kitty-graphics-process-timeout~    | 15.0     | Seconds before a hung magick/identify/ffmpeg/typst call is killed  |
+| ~kitty-graphics-skip-clean-refresh~ | t        | Skip refreshing when no visible window content changed             |
+| ~kitty-graphics-base64-cache-bytes~ | 67108864 | Max bytes of base64-encoded image data cached in memory (64 MiB)   |
 
-External conversions (ImageMagick, ffmpeg, typst) run under a watchdog: if one exceeds ~kitty-gfx-process-timeout~ it is killed so a corrupt or pathological file cannot freeze Emacs. Sixel encoding has its own bound, ~kitty-gfx-sixel-encoder-timeout~. Set either to nil to disable the watchdog.
+External conversions (ImageMagick, ffmpeg, typst) run under a watchdog: if one exceeds ~kitty-graphics-process-timeout~ it is killed so a corrupt or pathological file cannot freeze Emacs. Sixel encoding has its own bound, ~kitty-graphics-sixel-encoder-timeout~. Set either to nil to disable the watchdog.
 
 *** shr images (eww, elfeed, mu4e, gnus)
 
 | Variable                   | Default | Description                                           |
 |----------------------------+---------+-------------------------------------------------------|
-| ~kitty-gfx-shr-scale~      |     nil | Image sizing for shr backends: nil, a float, or ~fit~ |
-| ~kitty-gfx-shr-fit-width~  |     0.6 | Fraction of the window width under ~fit~ sizing       |
-| ~kitty-gfx-shr-fit-height~ |      20 | Maximum image height in rows under ~fit~ sizing       |
+| ~kitty-graphics-shr-scale~      |     nil | Image sizing for shr backends: nil, a float, or ~fit~ |
+| ~kitty-graphics-shr-fit-width~  |     0.6 | Fraction of the window width under ~fit~ sizing       |
+| ~kitty-graphics-shr-fit-height~ |      20 | Maximum image height in rows under ~fit~ sizing       |
 
-By default shr images render at natural size, shrinking only to fit ~kitty-gfx-max-width~ / ~kitty-gfx-max-height~ — which often leaves feed images dominating the buffer. ~kitty-gfx-shr-scale~ tames them:
+By default shr images render at natural size, shrinking only to fit ~kitty-graphics-max-width~ / ~kitty-graphics-max-height~ — which often leaves feed images dominating the buffer. ~kitty-graphics-shr-scale~ tames them:
 
 - ~nil~ — natural size (shrink-to-fit the max dimensions), the default.
 - a float such as ~0.25~ — render every image at that fraction of its natural width and height, still capped at the max dimensions.
-- ~fit~ — dynamically scale each image into a box derived from the *live* window: at most ~kitty-gfx-shr-fit-width~ of the window's width and ~kitty-gfx-shr-fit-height~ rows tall, preserving aspect ratio and never enlarging images that already fit. The box follows the window, so narrowing the window shrinks the images with it.
+- ~fit~ — dynamically scale each image into a box derived from the *live* window: at most ~kitty-graphics-shr-fit-width~ of the window's width and ~kitty-graphics-shr-fit-height~ rows tall, preserving aspect ratio and never enlarging images that already fit. The box follows the window, so narrowing the window shrinks the images with it.
 
 #+begin_src emacs-lisp
 ;; Quarter-size feed images:
-(setq kitty-gfx-shr-scale 0.25)
+(setq kitty-graphics-shr-scale 0.25)
 
 ;; Or: dynamic, window-relative sizing (recommended for elfeed/eww):
-(setq kitty-gfx-shr-scale 'fit
-      kitty-gfx-shr-fit-width 0.6
-      kitty-gfx-shr-fit-height 20)
+(setq kitty-graphics-shr-scale 'fit
+      kitty-graphics-shr-fit-width 0.6
+      kitty-graphics-shr-fit-height 20)
 #+end_src
 
 *** Sixel encoder
 
 | Variable                          | Default | Description                                                |
 |-----------------------------------+---------+------------------------------------------------------------|
-| ~kitty-gfx-sixel-encoder-program~ | nil     | Encoder program (auto: img2sixel > magick > convert)       |
-| ~kitty-gfx-sixel-encoder-args~    | nil     | Extra arguments passed to the encoder                      |
-| ~kitty-gfx-sixel-encoder-timeout~ | 5.0     | Max seconds to wait for a single encoder run               |
-| ~kitty-gfx-sixel-dither~          | nil     | Dithering: nil (encoder default), "none", "fs", "atkinson" |
-| ~kitty-gfx-sixel-colors~          | 256     | Palette size; lower shrinks the payload, fewer colors      |
+| ~kitty-graphics-sixel-encoder-program~ | nil     | Encoder program (auto: img2sixel > magick > convert)       |
+| ~kitty-graphics-sixel-encoder-args~    | nil     | Extra arguments passed to the encoder                      |
+| ~kitty-graphics-sixel-encoder-timeout~ | 5.0     | Max seconds to wait for a single encoder run               |
+| ~kitty-graphics-sixel-dither~          | nil     | Dithering: nil (encoder default), "none", "fs", "atkinson" |
+| ~kitty-graphics-sixel-colors~          | 256     | Palette size; lower shrinks the payload, fewer colors      |
 
 *** tmux
 
 | Variable                         | Default | Description                                      |
 |----------------------------------+---------+--------------------------------------------------|
-| ~kitty-gfx-tmux-passthrough~     | t       | Wrap Kitty APC sequences in tmux DCS passthrough |
-| ~kitty-gfx-kitty-placement-mode~ | auto    | Placement strategy: auto, direct, or placeholder |
-| ~kitty-gfx-tmux-allow-sixel~     | t       | Allow the Sixel backend inside tmux >= 3.4       |
+| ~kitty-graphics-tmux-passthrough~     | t       | Wrap Kitty APC sequences in tmux DCS passthrough |
+| ~kitty-graphics-kitty-placement-mode~ | auto    | Placement strategy: auto, direct, or placeholder |
+| ~kitty-graphics-tmux-allow-sixel~     | t       | Allow the Sixel backend inside tmux >= 3.4       |
 
 *** Video
 
 | Variable                                 | Default                  | Description                                      |
 |------------------------------------------+--------------------------+--------------------------------------------------|
-| ~kitty-gfx-enable-video~                 | nil                      | Enable inline mpv video (mpv 0.36.0+)            |
-| ~kitty-gfx-video-file-extensions~        | mp4 mkv webm mov m4v avi | Extensions handled by inline mpv preview         |
-| ~kitty-gfx-video-thumbnail-seek~         | "0.5"                    | Seconds offset for thumbnail extraction          |
-| ~kitty-gfx-dired-preview-debounce~       | 0.3                      | Idle seconds before dired auto-preview           |
-| ~kitty-gfx-dirvish-video-inline-preview~ | nil                      | Where to play a video opened with RET in dirvish |
+| ~kitty-graphics-enable-video~                 | nil                      | Enable inline mpv video (mpv 0.36.0+)            |
+| ~kitty-graphics-video-file-extensions~        | mp4 mkv webm mov m4v avi | Extensions handled by inline mpv preview         |
+| ~kitty-graphics-video-thumbnail-seek~         | "0.5"                    | Seconds offset for thumbnail extraction          |
+| ~kitty-graphics-dired-preview-debounce~       | 0.3                      | Idle seconds before dired auto-preview           |
+| ~kitty-graphics-dirvish-video-inline-preview~ | nil                      | Where to play a video opened with RET in dirvish |
 
 *** Headings & text sizing
 
 | Variable                              | Default                         | Description                                         |
 |---------------------------------------+---------------------------------+-----------------------------------------------------|
-| ~kitty-gfx-heading-scales~            | ((1 . 2.0) (2 . 1.5) (3 . 1.2)) | Org heading level -> visual scale factor            |
-| ~kitty-gfx-heading-sizes-auto~        | nil                             | Apply heading sizes automatically in org buffers    |
-| ~kitty-gfx-heading-scan-visible-only~ | t                               | Only instrument headings near the visible region    |
-| ~kitty-gfx-heading-conflicting-modes~ | (org-modern-mode ...)           | Minor modes disabled while heading sizes are active |
+| ~kitty-graphics-heading-scales~            | ((1 . 2.0) (2 . 1.5) (3 . 1.2)) | Org heading level -> visual scale factor            |
+| ~kitty-graphics-heading-sizes-auto~        | nil                             | Apply heading sizes automatically in org buffers    |
+| ~kitty-graphics-heading-scan-visible-only~ | t                               | Only instrument headings near the visible region    |
+| ~kitty-graphics-heading-conflicting-modes~ | (org-modern-mode ...)           | Minor modes disabled while heading sizes are active |
 
 *** Typst
 
 | Variable                    | Default | Description                                      |
 |-----------------------------+---------+--------------------------------------------------|
-| ~kitty-gfx-typst-command~   | "typst" | Path to the typst executable                     |
-| ~kitty-gfx-typst-ppi~       | 300     | Pixels-per-inch passed to =typst compile=        |
-| ~kitty-gfx-typst-text-size~ | 11      | Text size in points for rendered math fragments  |
-| ~kitty-gfx-typst-preamble~  | nil     | Extra typst code prepended to each math fragment |
+| ~kitty-graphics-typst-command~   | "typst" | Path to the typst executable                     |
+| ~kitty-graphics-typst-ppi~       | 300     | Pixels-per-inch passed to =typst compile=        |
+| ~kitty-graphics-typst-text-size~ | 11      | Text size in points for rendered math fragments  |
+| ~kitty-graphics-typst-preamble~  | nil     | Extra typst code prepended to each math fragment |
 
-The image-sizing defaults (~kitty-gfx-max-width~ / ~kitty-gfx-max-height~) govern inline images in org-mode, eww, and dired previews; the shr backends (eww, elfeed, mu4e, gnus) can shrink further via ~kitty-gfx-shr-scale~ (see above). Doc-view ignores these and fills the window, with =+= / =-= / =0= for zoom.
+The image-sizing defaults (~kitty-graphics-max-width~ / ~kitty-graphics-max-height~) govern inline images in org-mode, eww, and dired previews; the shr backends (eww, elfeed, mu4e, gnus) can shrink further via ~kitty-graphics-shr-scale~ (see above). Doc-view ignores these and fills the window, with =+= / =-= / =0= for zoom.
 
 * How It Works
 
-1. On startup, backend dispatch selects a protocol: if ~kitty-gfx-preferred-protocol~ is ~auto~, it checks for Kitty (via ~KITTY_PID~), then probes Sixel via a DA1 query. The mode-line shows ~[K]~, ~[S]~, or ~[?]~ for the active backend, with a ~+T~ suffix (e.g. ~[K+T]~) when the Kitty text sizing protocol (OSC 66) is available.
+1. On startup, backend dispatch selects a protocol: if ~kitty-graphics-preferred-protocol~ is ~auto~, it checks for Kitty (via ~KITTY_PID~), then probes Sixel via a DA1 query. The mode-line shows ~[K]~, ~[S]~, or ~[?]~ for the active backend, with a ~+T~ suffix (e.g. ~[K+T]~) when the Kitty text sizing protocol (OSC 66) is available.
 2. Cell pixel size is queried via ~CSI 16 t~ (XTWINOPS) for accurate image scaling. Falls back to 8x16 if the query times out.
 3. *Kitty path*: image data is transmitted once via APC escape sequences (~a=t~, store only). Direct placements (~a=p~) position the image at overlay screen coordinates after each redisplay, using unique placement IDs (~p=PID~).
 4. *Sixel path*: images are encoded to Sixel via the external encoder and emitted directly at overlay screen coordinates. Since Sixel is stateless, images are re-emitted whenever they scroll to a new position.
@@ -321,20 +321,20 @@ PNG is sent directly to the terminal. Other formats (JPEG, GIF, WebP, SVG, TIFF,
 
 * Known Limitations
 
-- *tmux*: Kitty graphics now work inside tmux via DCS passthrough (~kitty-gfx-tmux-passthrough~), with a Unicode-placeholder placement mode (~kitty-gfx-kitty-placement-mode~) to survive pane switches. Sixel also works inside tmux >= 3.4 (foot/Konsole/mintty/mlterm/WezTerm as the outer terminal; ~kitty-gfx-tmux-allow-sixel~ to opt out). Because tmux's cell buffer is not pixel-aware, images may stick to old positions after scrolling, an upstream tmux limitation
+- *tmux*: Kitty graphics now work inside tmux via DCS passthrough (~kitty-graphics-tmux-passthrough~), with a Unicode-placeholder placement mode (~kitty-graphics-kitty-placement-mode~) to survive pane switches. Sixel also works inside tmux >= 3.4 (foot/Konsole/mintty/mlterm/WezTerm as the outer terminal; ~kitty-graphics-tmux-allow-sixel~ to opt out). Because tmux's cell buffer is not pixel-aware, images may stick to old positions after scrolling, an upstream tmux limitation
 - Inline video on the Sixel backend is *experimental*: it needs an mpv built with libsixel (~--vo=sixel~), every frame is a full DCS payload (expect higher CPU than the Kitty backend), and it is excluded inside tmux like the Kitty path
 - Under a daemon, inline video and the casty browser are *bound to the client they were launched on* (a single subprocess streams to one terminal); other clients showing the same buffer see only the reserved blank area. Static images have no such limit and render on every client at once
-- *Scaled org headings* (OSC 66) are best for reading and navigating: while you type, a debounced rescan re-renders the heading in place, and only one canonical window per buffer renders the scaled headings (others showing the same buffer fall back to plain heading text). Toggle ~kitty-gfx-org-heading-sizes~ off for heavy editing
+- *Scaled org headings* (OSC 66) are best for reading and navigating: while you type, a debounced rescan re-renders the heading in place, and only one canonical window per buffer renders the scaled headings (others showing the same buffer fall back to plain heading text). Toggle ~kitty-graphics-org-heading-sizes~ off for heavy editing
 - Animated GIFs display only the first frame (they route through the image pipeline as static images)
 - Sixel is limited to 256 colors (vs truecolor on Kitty) and is stateless, so images are re-emitted on every scroll, which may be slower on large images
-- The Sixel backend needs a Sixel encoder on ~PATH~. ~img2sixel~ (libsixel) is strongly recommended; ~magick~ / ~convert~ work as fallback but are noticeably slower. With no encoder on ~PATH~, the backend silently produces no output and only logs ~no encoder found~ when ~kitty-gfx-debug~ is non-nil
+- The Sixel backend needs a Sixel encoder on ~PATH~. ~img2sixel~ (libsixel) is strongly recommended; ~magick~ / ~convert~ work as fallback but are noticeably slower. With no encoder on ~PATH~, the backend silently produces no output and only logs ~no encoder found~ when ~kitty-graphics-debug~ is non-nil
 - Without ImageMagick, only PNG files work on the Kitty backend
 
 * Inline web browser (experimental)
 
-~kitty-gfx-browse~ embeds a real Chromium page inside an Emacs buffer by driving [[https://github.com/cashmeredev/casty][casty]] (my fork of [[https://github.com/sanohiro/casty][sanohiro/casty]], MIT) in its embed mode: casty renders the page to PNG frames over the Kitty graphics protocol while Emacs forwards scroll, navigation, clicks, and link hints over an IPC socket. This is experimental and Kitty only (the Kitty terminal itself); it is not reliable on Ghostty or other Kitty-protocol terminals yet.
+~kitty-graphics-browse~ embeds a real Chromium page inside an Emacs buffer by driving [[https://github.com/cashmeredev/casty][casty]] (my fork of [[https://github.com/sanohiro/casty][sanohiro/casty]], MIT) in its embed mode: casty renders the page to PNG frames over the Kitty graphics protocol while Emacs forwards scroll, navigation, clicks, and link hints over an IPC socket. This is experimental and Kitty only (the Kitty terminal itself); it is not reliable on Ghostty or other Kitty-protocol terminals yet.
 
-*Requirements*: the Kitty terminal, Node >= 18, and a Chromium-based browser (casty auto-installs Chrome Headless Shell on first run, or set ~kitty-gfx-casty-chrome~ / the ~CASTY_CHROME~ env var to reuse an existing one).
+*Requirements*: the Kitty terminal, Node >= 18, and a Chromium-based browser (casty auto-installs Chrome Headless Shell on first run, or set ~kitty-graphics-casty-chrome~ / the ~CASTY_CHROME~ env var to reuse an existing one).
 
 *Install*: clone the fork next to this repo and install its deps, then point Emacs at it.
 
@@ -344,19 +344,19 @@ cd ~/projects/casty && npm install
 #+end_src
 
 #+begin_src emacs-lisp
-(setq kitty-gfx-enable-browser t
-      kitty-gfx-casty-program "~/projects/casty/bin/casty.js")
+(setq kitty-graphics-enable-browser t
+      kitty-graphics-casty-program "~/projects/casty/bin/casty.js")
 #+end_src
 
-*Use an existing browser*: by default casty downloads and runs its own Chrome Headless Shell under ~~/.casty/browsers/~. To drive a Chromium-based browser you already have installed (Chromium, Chrome, Brave, Helium, ...) instead, point ~kitty-gfx-casty-chrome~ at its binary; casty launches it headless. Any Chromium-based browser that accepts ~--headless=new~ and ~--remote-debugging-port~ works.
+*Use an existing browser*: by default casty downloads and runs its own Chrome Headless Shell under ~~/.casty/browsers/~. To drive a Chromium-based browser you already have installed (Chromium, Chrome, Brave, Helium, ...) instead, point ~kitty-graphics-casty-chrome~ at its binary; casty launches it headless. Any Chromium-based browser that accepts ~--headless=new~ and ~--remote-debugging-port~ works.
 
 #+begin_src emacs-lisp
-(setq kitty-gfx-casty-chrome "/usr/bin/chromium")
+(setq kitty-graphics-casty-chrome "/usr/bin/chromium")
 #+end_src
 
 Equivalently, set the ~CASTY_CHROME~ environment variable before launching Emacs (=CASTY_CHROME=/usr/bin/chromium emacs -nw=). This also skips casty's first-run Chrome download.
 
-*Usage*: =M-x kitty-gfx-browse= prompts for a URL and opens it in the =*kitty-browser*= buffer.
+*Usage*: =M-x kitty-graphics-browse= prompts for a URL and opens it in the =*kitty-browser*= buffer.
 
 | Key           | Action                    |
 |---------------+---------------------------|
@@ -369,19 +369,19 @@ Equivalently, set the ~CASTY_CHROME~ environment variable before launching Emacs
 | =mouse-1=     | Click at point            |
 | =q=           | Quit and kill the buffer  |
 
-With =f=, casty labels the clickable elements and you type the label to follow it; =escape= or =C-g= cancels. Mouse wheel scrolls. When ~kitty-gfx-browser-evil-bindings~ is non-nil (default), the same keys are mirrored into evil normal/motion state.
+With =f=, casty labels the clickable elements and you type the label to follow it; =escape= or =C-g= cancels. Mouse wheel scrolls. When ~kitty-graphics-browser-evil-bindings~ is non-nil (default), the same keys are mirrored into evil normal/motion state.
 
 *Customization*:
 
 | Variable                          | Default | Description                                             |
 |-----------------------------------+---------+---------------------------------------------------------|
-| ~kitty-gfx-enable-browser~        | nil     | Enable the inline casty web browser                     |
-| ~kitty-gfx-casty-program~         | "casty" | Program name or path used to launch casty               |
-| ~kitty-gfx-casty-chrome~          | nil     | Path to a Chromium-based browser for casty to drive     |
-| ~kitty-gfx-browser-max-width~     | 200     | Maximum browser frame width in columns                  |
-| ~kitty-gfx-browser-max-height~    | 60      | Maximum browser frame height in rows                    |
-| ~kitty-gfx-browser-scroll-step~   | 300     | Pixels scrolled per =j=/=k= keypress                    |
-| ~kitty-gfx-browser-evil-bindings~ | t       | Mirror the browser keymap into evil normal/motion state |
+| ~kitty-graphics-enable-browser~        | nil     | Enable the inline casty web browser                     |
+| ~kitty-graphics-casty-program~         | "casty" | Program name or path used to launch casty               |
+| ~kitty-graphics-casty-chrome~          | nil     | Path to a Chromium-based browser for casty to drive     |
+| ~kitty-graphics-browser-max-width~     | 200     | Maximum browser frame width in columns                  |
+| ~kitty-graphics-browser-max-height~    | 60      | Maximum browser frame height in rows                    |
+| ~kitty-graphics-browser-scroll-step~   | 300     | Pixels scrolled per =j=/=k= keypress                    |
+| ~kitty-graphics-browser-evil-bindings~ | t       | Mirror the browser keymap into evil normal/motion state |
 
 * License
 

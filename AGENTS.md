@@ -33,7 +33,7 @@ emacs -Q -batch -l kitty-graphics.el -f kill-emacs
 No automated test framework. All testing is manual/interactive and
 requires a supported terminal (Kitty, WezTerm, Ghostty for Kitty backend;
 foot, Konsole, xterm, mlterm, mintty, Windows Terminal for Sixel backend).
-The `tests/` directory contains `test-kitty-gfx.org`, `test-image.png`,
+The `tests/` directory contains `test-kitty-graphics.org`, `test-image.png`,
 and `test-document.pdf` for manual testing -- use these rather than
 creating new test files.
 
@@ -44,7 +44,7 @@ Emacs -- the `xterm-kitty` terminfo is often missing.
 
 ```sh
 TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
-  --eval "(kitty-graphics-mode 1)" tests/test-kitty-gfx.org
+  --eval "(kitty-graphics-mode 1)" tests/test-kitty-graphics.org
 # Then: C-c C-x C-v (org-toggle-inline-images)
 ```
 
@@ -53,8 +53,8 @@ TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
 ```sh
 TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
   --eval "(kitty-graphics-mode 1)" tests/test-typst.typ
-# Then: M-x kitty-gfx-typst-preview
-# To clear: M-x kitty-gfx-typst-clear-preview
+# Then: M-x kitty-graphics-typst-preview
+# To clear: M-x kitty-graphics-typst-clear-preview
 # Requires the `typst` CLI on PATH.
 ```
 
@@ -62,8 +62,8 @@ TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
 
 ```sh
 TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
-  --eval "(setq kitty-gfx-heading-sizes-auto t)" \
-  --eval "(kitty-graphics-mode 1)" tests/test-kitty-gfx.org
+  --eval "(setq kitty-graphics-heading-sizes-auto t)" \
+  --eval "(kitty-graphics-mode 1)" tests/test-kitty-graphics.org
 # Headings should render at scaled sizes automatically.
 # S-TAB to unfold all, then scroll to verify fold/unfold/scroll.
 ```
@@ -77,7 +77,7 @@ TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
 
 ### Debug logging
 
-Set `kitty-gfx-debug` to `t` to log debug info to `/tmp/kitty-gfx.log`.
+Set `kitty-graphics-debug` to `t` to log debug info to `/tmp/kitty-graphics.log`.
 
 ### Dev environment
 
@@ -123,12 +123,12 @@ notify-send "kitty-graphics" "Please test: <description of what to test>"
 
 | Category              | Pattern                        | Example                          |
 |-----------------------|--------------------------------|----------------------------------|
-| Public API            | `kitty-gfx-` prefix           | `kitty-gfx-display-image`       |
-| Internal functions    | `kitty-gfx--` (double dash)   | `kitty-gfx--transmit-image`     |
-| Buffer-local vars     | `defvar-local` + double dash  | `kitty-gfx--overlays`           |
-| Customization vars    | `defcustom` + single dash     | `kitty-gfx-max-width`           |
-| Global internal vars  | `defvar` + double dash        | `kitty-gfx--next-id`            |
-| Advice functions      | `kitty-gfx--MODE-VERB-advice` | `kitty-gfx--org-display-advice` |
+| Public API            | `kitty-graphics-` prefix           | `kitty-graphics-display-image`       |
+| Internal functions    | `kitty-graphics--` (double dash)   | `kitty-graphics--transmit-image`     |
+| Buffer-local vars     | `defvar-local` + double dash  | `kitty-graphics--overlays`           |
+| Customization vars    | `defcustom` + single dash     | `kitty-graphics-max-width`           |
+| Global internal vars  | `defvar` + double dash        | `kitty-graphics--next-id`            |
+| Advice functions      | `kitty-graphics--MODE-VERB-advice` | `kitty-graphics--org-display-advice` |
 | Minor mode            | `kitty-graphics-mode`          |                                  |
 
 All identifiers use `kebab-case`.
@@ -148,14 +148,14 @@ All identifiers use `kebab-case`.
 - `ignore-errors` around `send-string-to-terminal` -- terminal writes
   must never crash Emacs
 - `when`/`unless` guards rather than explicit error branches
-- `unwind-protect` for cleanup (see `kitty-gfx--refresh`)
+- `unwind-protect` for cleanup (see `kitty-graphics--refresh`)
 
 ### Advice convention
 
 All advice uses `:around` and guards on both mode and terminal:
 
 ```elisp
-(defun kitty-gfx--FOO-advice (orig-fn &rest args)
+(defun kitty-graphics--FOO-advice (orig-fn &rest args)
   (if (and kitty-graphics-mode (not (display-graphic-p)))
       ... ;; terminal path
     (apply orig-fn args)))
@@ -170,29 +170,29 @@ explicit advice -- there is no generic image display hook.
 
 Protocol-specific code is isolated behind an alist-based backend system:
 
-- `kitty-gfx--backends` -- alist mapping `'kitty` / `'sixel` to operation alists
-- `kitty-gfx--active-backend` -- symbol for the detected backend
-- `kitty-gfx--backend-fn` -- dispatch helper: `(funcall (kitty-gfx--backend-fn 'place) ...)`
-- `kitty-gfx--detect-protocol` -- tries Kitty (env check), then Sixel; sets active backend
+- `kitty-graphics--backends` -- alist mapping `'kitty` / `'sixel` to operation alists
+- `kitty-graphics--active-backend` -- symbol for the detected backend
+- `kitty-graphics--backend-fn` -- dispatch helper: `(funcall (kitty-graphics--backend-fn 'place) ...)`
+- `kitty-graphics--detect-protocol` -- tries Kitty (env check), then Sixel; sets active backend
 
 Each backend implements: `detect`, `prepare`, `place`, `delete`, `cleanup`, `cleanup-all`.
 
 ### Image pipeline (shared)
 
 1. **Prepare**: backend-specific -- Kitty transmits via APC `a=t`; Sixel encodes via ImageMagick to temp-file
-2. **Reserve space**: `kitty-gfx--make-overlay` -- overlay with blank `display` property
+2. **Reserve space**: `kitty-graphics--make-overlay` -- overlay with blank `display` property
 3. **Place**: backend-specific -- Kitty emits `a=p` with `p=PID`; Sixel reads temp-file and emits DCS
-4. **Refresh**: `kitty-gfx--refresh` -- debounced via `run-at-time`; walks windows,
+4. **Refresh**: `kitty-graphics--refresh` -- debounced via `run-at-time`; walks windows,
    re-places moved overlays, deletes hidden ones
-5. **Cache**: `kitty-gfx--image-cache` -- keyed by file path → image ID (integer).
-   Dimensions are computed fresh each time. LRU eviction via `kitty-gfx--cache-lru`
-   (max `kitty-gfx-cache-size` entries, default 64).
-   Sixel also caches encoded data in temp-files under `/tmp/kitty-gfx-sixel-*.six`.
+5. **Cache**: `kitty-graphics--image-cache` -- keyed by file path → image ID (integer).
+   Dimensions are computed fresh each time. LRU eviction via `kitty-graphics--cache-lru`
+   (max `kitty-graphics-cache-size` entries, default 64).
+   Sixel also caches encoded data in temp-files under `/tmp/kitty-graphics-sixel-*.six`.
 
-Overlay properties: `kitty-gfx` (bool marker), `kitty-gfx-id` (image ID),
-`kitty-gfx-pid` (placement ID), `kitty-gfx-cols`/`kitty-gfx-rows` (cell size),
-`kitty-gfx-last-row`/`kitty-gfx-last-col` (cached position, nil if hidden),
-`kitty-gfx-file` (source file path, needed by Sixel for re-encoding).
+Overlay properties: `kitty-graphics` (bool marker), `kitty-graphics-id` (image ID),
+`kitty-graphics-pid` (placement ID), `kitty-graphics-cols`/`kitty-graphics-rows` (cell size),
+`kitty-graphics-last-row`/`kitty-graphics-last-col` (cached position, nil if hidden),
+`kitty-graphics-file` (source file path, needed by Sixel for re-encoding).
 All terminal output is wrapped in synchronized output (BSU/ESU, DEC mode
 2026) to prevent flicker.
 
@@ -202,28 +202,28 @@ Unlike images, the text sizing protocol is **stateless** — there are no
 image IDs or placement IDs.  The terminal renders scaled text inline
 but any redraw clears it.
 
-1. **Detect**: `kitty-gfx--query-text-sizing-support` — 3 CPR queries
+1. **Detect**: `kitty-graphics--query-text-sizing-support` — 3 CPR queries
    to probe width-only vs scale vs no support.  Cached in
-   `kitty-gfx--text-sizing-support` (`scale`, `width`, or `none`).
-2. **Scan**: `kitty-gfx--org-apply-heading-sizes` — walks org headings,
-   looks up scale from `kitty-gfx-heading-scales` alist, creates overlays.
-3. **Overlay**: `kitty-gfx--make-heading-overlay` — overlay **without**
+   `kitty-graphics--text-sizing-support` (`scale`, `width`, or `none`).
+2. **Scan**: `kitty-graphics--org-apply-heading-sizes` — walks org headings,
+   looks up scale from `kitty-graphics-heading-scales` alist, creates overlays.
+3. **Overlay**: `kitty-graphics--make-heading-overlay` — overlay **without**
    `display` property (Emacs shows the heading line normally; OSC 66 is
    painted on top by the refresh cycle).  No vertical space reservation.
-4. **Place**: `kitty-gfx--place-heading` — emits `\e]66;s=SCALE;TEXT\a`
+4. **Place**: `kitty-graphics--place-heading` — emits `\e]66;s=SCALE;TEXT\a`
    at cursor position with SGR bold + 24-bit foreground color from
    `org-level-N` faces.
-5. **Refresh**: `kitty-gfx--refresh-heading-overlay` — **always re-emits**
+5. **Refresh**: `kitty-graphics--refresh-heading-overlay` — **always re-emits**
    OSC 66 when visible (stateless protocol).  Erases old position on move
-   via `kitty-gfx--erase-heading` (writes spaces across all rows —
+   via `kitty-graphics--erase-heading` (writes spaces across all rows —
    per spec, overwriting any cell in the topmost row of a multicell
    character erases the entire block).
 
 Heading overlay properties (in addition to the common ones above):
-`kitty-gfx-heading` (bool), `kitty-gfx-heading-text`, `kitty-gfx-heading-scale`,
-`kitty-gfx-heading-level`.  Heading overlays have `modification-hooks` so
+`kitty-graphics-heading` (bool), `kitty-graphics-heading-text`, `kitty-graphics-heading-scale`,
+`kitty-graphics-heading-level`.  Heading overlays have `modification-hooks` so
 editing the heading text removes the stale overlay for re-creation.
-Re-scan after edits is debounced via `kitty-gfx--heading-rescan-timer`
+Re-scan after edits is debounced via `kitty-graphics--heading-rescan-timer`
 (buffer-local, 0.2s) to prevent redundant scans from rapid typing.
 
 Key design differences from images:
@@ -236,14 +236,14 @@ Key design differences from images:
   when their buffer becomes hidden (not visible in any window).  This
   prevents ghost multicell artifacts if the new buffer's content does
   not fully overwrite the heading's terminal cells.
-- Overlap detection (`kitty-gfx--heading-occupied-rows`) is reset
+- Overlap detection (`kitty-graphics--heading-occupied-rows`) is reset
   **per-window** inside `walk-windows`, not globally.  This ensures
   headings in one window don't block headings at different terminal
   rows in another window showing the same buffer.
 
 ### Inline video (mpv)
 
-`kitty-gfx-play-video` runs `mpv --vo=kitty` on a PTY, captures its
+`kitty-graphics-play-video` runs `mpv --vo=kitty` on a PTY, captures its
 graphics stream, and forwards it to the terminal; a JSON IPC socket
 drives pause/resume/stop.  Only one video plays at a time and it
 auto-pauses when scrolled out of view.  Kitty backend only (the Sixel
@@ -251,7 +251,7 @@ re-emit cost per frame makes playback impractical).
 
 ### Inline web browser (casty embed mode)
 
-`kitty-gfx-browse` embeds [casty](https://github.com/cashmeredev/casty)
+`kitty-graphics-browse` embeds [casty](https://github.com/cashmeredev/casty)
 (a fork of [sanohiro/casty](https://github.com/sanohiro/casty), MIT) in
 its embed mode.  casty is spawned with `--embed --ipc <sock> --image-id
 <n> --cols/--rows/--top/--left/--width/--height`; it renders the page to
@@ -259,19 +259,19 @@ PNG frames over the Kitty graphics protocol (single image id, frames
 staged in `/dev/shm`) while Emacs sends newline-delimited JSON commands
 (scroll, navigate, back/forward, reload, click, hints, hint-key,
 set-geometry, get-url, quit) over the IPC socket.  `CASTY_CHROME` (from
-`kitty-gfx-casty-chrome`) reuses an existing Chromium binary.  The
+`kitty-graphics-casty-chrome`) reuses an existing Chromium binary.  The
 refresh cycle sends `set-geometry` when the overlay's terminal position
-changes; `kitty-gfx--browser-ipc-filter` parses replies and clears
-`kitty-gfx--browser-hint-active` on `{"hintActive":false}`.
+changes; `kitty-graphics--browser-ipc-filter` parses replies and clears
+`kitty-graphics--browser-hint-active` on `{"hintActive":false}`.
 `kitty-graphics-mode` disable tears down every session via
-`kitty-gfx--stop-all-browsers`.  Experimental; Kitty terminal only.
+`kitty-graphics--stop-all-browsers`.  Experimental; Kitty terminal only.
 
 ## Known Issues & Planned Work
 
 - **Fixed**: Overlays remain visible when org headings are collapsed (#1)
 - **Partial**: tmux support (#2) -- Sixel works inside tmux >= 3.4 (native
   rendering, foot/Konsole/etc as outer terminal); guarded by
-  `kitty-gfx-tmux-allow-sixel'.  Known caveat: images may persist after
+  `kitty-graphics-tmux-allow-sixel'.  Known caveat: images may persist after
   scrolling because tmux's cell buffer is not pixel-aware (upstream limit).
   Kitty graphics passthrough is still unimplemented -- tracked separately.
 - **Limitation**: Each mode needs explicit `:around` advice integration
@@ -280,7 +280,7 @@ changes; `kitty-gfx--browser-ipc-filter` parses replies and clears
 - **Limitation**: Sixel is 256 colors (vs truecolor on Kitty), stateless (re-emits on scroll)
 - **Done**: LaTeX fragment preview in org-mode (#3)
 - **Done**: doc-view / pdf-view-mode integration (#4)
-- **Done**: Typst inline equation preview (#5) -- `kitty-gfx-typst-preview`
+- **Done**: Typst inline equation preview (#5) -- `kitty-graphics-typst-preview`
   scans `$...$' fragments in the current buffer or region, compiles each
   via the `typst' CLI, and displays the resulting PNG inline. No advice
   hooks; bind to a key or invoke via `M-x'.
@@ -302,15 +302,15 @@ changes; `kitty-gfx--browser-ipc-filter` parses replies and clears
   - **Fallback**: ImageMagick 7 (`magick`) or 6 (`convert`).  Works,
     just slower.
   - Auto-detect order: `img2sixel` > `magick` > `convert`.  Override
-    via `kitty-gfx-sixel-encoder-program' (nil = auto, string = pin).
+    via `kitty-graphics-sixel-encoder-program' (nil = auto, string = pin).
   - With **no** encoder on `PATH`, the Sixel backend silently produces
-    no output and logs `no encoder found` (set `kitty-gfx-debug' to
+    no output and logs `no encoder found` (set `kitty-graphics-debug' to
     surface this).  Always verify with `just sixel-encoder' before
     diagnosing rendering bugs.
-  - Bounded by `kitty-gfx-sixel-encoder-timeout' (default 5s).
+  - Bounded by `kitty-graphics-sixel-encoder-timeout' (default 5s).
 - **Optional for Kitty**: ImageMagick for non-PNG formats and pixel-accurate sizing
 - **Optional for typst preview**: `typst` CLI on PATH (used by
-  `kitty-gfx-typst-preview`)
+  `kitty-graphics-typst-preview`)
 - **No external Elisp deps** beyond built-in `cl-lib`
 
 ## Versioning
@@ -320,6 +320,6 @@ Version is declared in the file header (`Version: X.Y.Z` in
 
 - **Patch** (0.2.x): bug fixes, minor improvements
 - **Minor** (0.x.0): new features, new mode integrations
-- **Major** (x.0.0): breaking changes to public API (`kitty-gfx-` symbols)
+- **Major** (x.0.0): breaking changes to public API (`kitty-graphics-` symbols)
 
 Bump the version in the header when preparing a release.
