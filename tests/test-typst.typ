@@ -3,8 +3,8 @@
 // Usage:
 //   TERM=xterm-256color emacs -nw -Q -l kitty-graphics.el \
 //     --eval "(kitty-graphics-mode 1)" tests/test-typst.typ
-//   M-x kitty-gfx-typst-preview
-//   M-x kitty-gfx-typst-clear-preview
+//   M-x kitty-graphics-typst-preview
+//   M-x kitty-graphics-typst-clear-preview
 //
 // Inline math fragments below should each be replaced by a rendered
 // PNG overlay.  Escaped dollar signs (\$ ... \$) must be ignored.
