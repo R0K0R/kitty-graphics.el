@@ -1,5 +1,55 @@
 * Changelog
 
+** kitty-graphics 1.4.0
+
+doc-view pages now render sharp in the terminal.  Pages were displayed
+from doc-view's fixed-DPI PNG (100 dpi by default), so any window whose
+pixel area exceeded the page's pixels showed an upscaled, blurry page.
+New ~kitty-graphics-doc-view-resolution-scale~ (default ~2.0~) re-renders
+the document at a higher ~doc-view-resolution~ whenever the page image
+has fewer pixels than the multiplier times the exact-fit display area;
+the stale page stays on screen until the reconversion callback
+re-displays it.  The multiplier doubles as zoom headroom: ~+~ / ~-~
+zoom crops source pixels, so pages stay sharp up to roughly that
+factor before upscaling kicks in.
+
+MuPDF SVG pages (~doc-view-mupdf-use-svg~) are switched to PNG
+rendering in terminal buffers.  The SVG output is vector, so its
+nominal pixel size never grows with DPI — bumping the resolution
+could never satisfy the sharpness check (and looped), and the
+rasterized placement was always stuck at the 72dpi nominal size.
+The target DPI is computed from the SVG's point size directly, and
+the requested resolution is capped at 1200 dpi so a poisoned cache
+self-heals on the next reconvert.
+
+The sharpness check re-queries the terminal cell size when the
+globals were invalidated by a window change (the 8x16 fallback
+undersized the render target), and no longer skips while other
+pages are still converting — a buffer-local record of the requested
+DPI prevents stacked reconversions instead, so multi-page documents
+get their re-render even when page one displays while page two is
+still converting.
+
+Page inserts that race the converter no longer poison the image
+cache.  doc-view calls ~doc-view-insert-image~ while the page file
+is still being written (reconvert's force display and the refresh
+timer both race mupdf); transmitting then cached an empty image
+under the page path and blanked the page for the rest of the
+session.  An empty or unreadable page file now keeps the stale page
+on screen until doc-view's completion re-display calls again with
+the whole file.
+
+On a terminal, doc-view's conversion callbacks no longer abort.
+doc-view calls ~clear-image-cache~ from its conversion-completion
+callback before re-displaying; that C function signals "Window
+system frame should be used" on a TTY frame, and the error
+propagating through ~doc-view-sentinel~ killed the whole conversion
+chain — no re-display, no whole-document conversion, permanently
+blank pages.  ~clear-image-cache~ is now a no-op on terminal frames
+while ~kitty-graphics-mode~ is active (the package transmits pixels
+directly and never uses the image.c cache there); GUI frames are
+unaffected.
+
 ** kitty-graphics 1.3.0
 
 This release prepares the package for MELPA submission.  Every public

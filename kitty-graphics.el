@@ -5,7 +5,7 @@
 ;; Author: cashmere <cashmere@autistici.org>
 ;; Assisted-by: Claude:claude-opus-4-8
 ;; Maintainer: cashmere <cashmere@autistici.org>
-;; Version: 1.3.0
+;; Version: 1.4.0
 ;; URL: https://github.com/cashmeredev/kitty-graphics.el
 ;; Keywords: terminals, images, multimedia
 ;; Package-Requires: ((emacs "27.1"))
@@ -74,8 +74,12 @@
 (declare-function doc-view-insert-image "doc-view" (file &rest args))
 (declare-function doc-view-enlarge "doc-view" (factor))
 (declare-function doc-view-scale-reset "doc-view" ())
+(declare-function doc-view-reconvert-doc "doc-view" ())
+(declare-function doc-view-set-up-single-converter "doc-view" ())
 (defvar doc-view--current-cache-dir)
 (defvar doc-view--image-file-pattern)
+(defvar doc-view-resolution)
+(defvar doc-view-mupdf-use-svg)
 (declare-function dired-get-file-for-visit "dired" ())
 (declare-function image-mode-setup-winprops "image-mode" ())
 (declare-function shr-rescale-image "shr" (data &optional content-type width height max-width max-height))
@@ -119,6 +123,23 @@ For full-window modes like doc-view, the window size is used instead."
   "Maximum image height in terminal rows for inline images.
 For full-window modes like doc-view, the window size is used instead."
   :type 'integer
+  :group 'kitty-graphics)
+
+(defcustom kitty-graphics-doc-view-resolution-scale 2.0
+  "Render-resolution multiplier for doc-view pages in the terminal.
+doc-view renders pages to PNG at a fixed DPI (`doc-view-resolution',
+default 100).  When that PNG has fewer pixels than the terminal area
+it is drawn into (cols x cell-pixel-width by rows x cell-pixel-height),
+the terminal upscales it and text looks blurry.  When the rendered
+page is too small, kitty-graphics raises the buffer-local
+`doc-view-resolution' so the document is re-rendered with at least
+this many times the pixels of the exact-fit display area.
+Values above 1.0 also provide zoom headroom: zooming crops source
+pixels, so pages stay sharp up to roughly this factor before
+upscaling kicks in.  Higher values cost conversion time and memory.
+Set to 1.0 for exact-fit rendering, or nil to disable and always use
+doc-view's resolution as-is."
+  :type '(choice (const :tag "Disabled" nil) number)
   :group 'kitty-graphics)
 
 (define-obsolete-variable-alias 'kitty-gfx-shr-scale 'kitty-graphics-shr-scale "1.3.0")
@@ -6123,6 +6144,18 @@ TYPE is the document type symbol (pdf, dvi, ps, etc.)."
         (funcall orig-fn type))
     (funcall orig-fn type)))
 
+(defun kitty-graphics--clear-image-cache-advice (orig-fn &rest args)
+  "Around advice for `clear-image-cache'.
+On a terminal, `clear-image-cache' signals \"Window system frame
+should be used\".  doc-view's conversion-completion callback calls it
+before re-displaying, so the error propagates through `doc-view-sentinel'
+and kills the whole conversion chain (no re-display, no resolution.el).
+kitty-graphics transmits pixels directly and never uses the image.c
+cache on a terminal, so skipping the call there is safe."
+  (if (and kitty-graphics-mode (not (display-graphic-p)))
+      nil
+    (apply orig-fn args)))
+
 (defvar-local kitty-graphics--doc-view-overlay nil
   "The Kitty graphics overlay used for doc-view page display.")
 
@@ -6365,86 +6398,203 @@ panned via `kitty-graphics--doc-view-scroll-col'/`-row'.  Placeholder mode
         (overlay-put ov 'kitty-graphics-last-row term-row)
         (overlay-put ov 'kitty-graphics-last-col term-col)))))
 
+(defvar kitty-graphics--doc-view-max-resolution 1200
+  "Upper bound for the DPI `kitty-graphics--doc-view-ensure-resolution' sets.
+A sanity ceiling so a miscalculation can never request an absurd
+render size from the converter.")
+
+(defvar-local kitty-graphics--doc-view-requested-resolution nil
+  "DPI already requested by `kitty-graphics--doc-view-ensure-resolution'.
+Prevents stacking reconversions: while a reconvert runs, further page
+inserts compute the same target and are skipped.  A reconvert is only
+triggered when the newly computed target differs from what was already
+requested (e.g. the window grew).")
+
+(defun kitty-graphics--doc-view-ensure-resolution (file px win-w win-h)
+  "Re-render the current document at a higher DPI when PX is too small.
+FILE is the page image, PX its pixel size (W . H); WIN-W and WIN-H
+are the usable window size in cells.  When the page has fewer pixels
+than `kitty-graphics-doc-view-resolution-scale' times the exact-fit
+display area, raise the buffer-local `doc-view-resolution'
+accordingly and reconvert the document; the conversion callback
+re-displays the page at the new resolution.  Returns non-nil when a
+reconversion was triggered and the caller should skip displaying
+this stale page.
+
+MuPDF SVG pages (`doc-view-mupdf-use-svg') are vector graphics: the
+-r flag does not change their nominal pixel size, so a DPI bump can
+never satisfy the check.  Switch the buffer to PNG rendering
+instead, computing the target DPI from the SVG's nominal size,
+which is in PDF points (72 per inch)."
+  (when (and kitty-graphics-doc-view-resolution-scale
+             px
+             (numberp doc-view-resolution))
+    ;; The global cell size is invalidated on every window change and
+    ;; re-queried lazily, so it may be nil here; fall back to the
+    ;; per-terminal parameter, then re-query, before assuming 8x16 --
+    ;; a fallback cell size undersizes the render target and the page
+    ;; ends up blurry anyway.
+    (let* ((cw (or kitty-graphics--cell-pixel-width
+                   (terminal-parameter nil 'kitty-graphics-cell-w)
+                   (progn (kitty-graphics--query-cell-size)
+                          kitty-graphics--cell-pixel-width)
+                   8))
+           (ch (or kitty-graphics--cell-pixel-height
+                   (terminal-parameter nil 'kitty-graphics-cell-h)
+                   16))
+           ;; Bind the globals so `kitty-graphics--compute-cell-dims' uses
+           ;; the same cell size.
+           (kitty-graphics--cell-pixel-width cw)
+           (kitty-graphics--cell-pixel-height ch)
+           (fit (kitty-graphics--compute-cell-dims (car px) (cdr px) win-w win-h))
+           (need-w (* (car fit) cw kitty-graphics-doc-view-resolution-scale))
+           (need-h (* (cdr fit) ch kitty-graphics-doc-view-resolution-scale))
+           (ratio (max (/ need-w (float (car px)))
+                       (/ need-h (float (cdr px))))))
+      ;; 10% tolerance so the re-rendered page itself passes the check.
+      (when (> ratio 1.1)
+        (if (and (string-suffix-p ".svg" file t)
+                 (boundp 'doc-view-mupdf-use-svg)
+                 (fboundp 'doc-view-set-up-single-converter))
+            (let ((new (min kitty-graphics--doc-view-max-resolution
+                            (ceiling (* 72 ratio)))))
+              (unless (eql new kitty-graphics--doc-view-requested-resolution)
+                (kitty-graphics--log
+                 "doc-view: SVG page cannot honor a DPI bump; switching to PNG at %d dpi"
+                 new)
+                (setq-local doc-view-mupdf-use-svg nil)
+                (doc-view-set-up-single-converter)
+                (setq-local doc-view-resolution new)
+                (setq kitty-graphics--doc-view-requested-resolution new)
+                (doc-view-reconvert-doc)
+                t))
+          (let ((new (min kitty-graphics--doc-view-max-resolution
+                          (ceiling (* ratio doc-view-resolution)))))
+            ;; `/=' (not `>'): a resolution above the ceiling (e.g. a
+            ;; cache poisoned by an earlier bug) is pulled back down to
+            ;; it, healing the cache on the next reconvert.
+            (when (and (/= new doc-view-resolution)
+                       (not (eql new kitty-graphics--doc-view-requested-resolution)))
+              (kitty-graphics--log
+               "doc-view: page %dx%d px too small for %dx%d cells x%.1f (need %.0fx%.0f px); resolution %d -> %d dpi"
+               (car px) (cdr px) win-w win-h
+               kitty-graphics-doc-view-resolution-scale need-w need-h
+               doc-view-resolution new)
+              (setq-local doc-view-resolution new)
+              (setq kitty-graphics--doc-view-requested-resolution new)
+              (doc-view-reconvert-doc)
+              t)))))))
+
 (defun kitty-graphics--doc-view-insert-image-advice (orig-fn file &rest args)
   "Around advice for `doc-view-insert-image'.
 Displays the page image via Kitty graphics instead of an Emacs
-image spec.  FILE is the path to the page PNG."
+image spec.  FILE is the path to the rendered page image (PNG, or
+SVG when `doc-view-mupdf-use-svg' is in effect)."
   (if (and kitty-graphics-mode (not (display-graphic-p)))
       (when (and file (file-exists-p file))
         (kitty-graphics--log "doc-view-insert: file=%s scale=%.2f" file kitty-graphics--doc-view-scale)
         ;; Remember current file for zoom commands
         (setq kitty-graphics--doc-view-current-file file)
-        ;; Drop doc-view's own "Welcome to DocView!" conversion-progress text
-        ;; (left on doc-view's overlay by `doc-view-buffer-message'); our
-        ;; overlay is separate, so it would otherwise show through behind the page.
-        (when (fboundp 'doc-view-current-overlay)
-          (let ((dv-ov (ignore-errors (doc-view-current-overlay))))
-            (when (overlayp dv-ov)
-              (overlay-put dv-ov 'display nil))))
-        ;; Retire the previous page overlay.  Re-rendering the SAME page (same
-        ;; image id, e.g. doc-view's double insert): keep the placement so the
-        ;; new one atomically replaces it (no flash, WezTerm #5892), and
-        ;; transplant its per-window placement so the same pid is reused.  A
-        ;; DIFFERENT page (new image id): Kitty placement ids are scoped per
-        ;; image id, so a new page at the same pid would NOT replace the old
-        ;; one and it would ghost — really delete the old placement (a=d).
         (let* ((abs-file (expand-file-name file))
-               (cached-id (kitty-graphics--cache-get abs-file))
-               (old-ov kitty-graphics--doc-view-overlay)
-               (old-id (and old-ov (overlay-get old-ov 'kitty-graphics-id)))
-               (same-page (and old-id cached-id (eql old-id cached-id)))
-               (old-pid (and old-ov (overlay-get old-ov 'kitty-graphics-pid)))
-               (old-placements (and same-page old-ov
-                                    (copy-sequence
-                                     (overlay-get old-ov 'kitty-graphics-placements)))))
-          (when old-ov
-            (kitty-graphics--remove-overlay old-ov (and same-page old-pid))
-            (setq kitty-graphics--doc-view-overlay nil))
-          ;; Display the rendered page using only an overlay.  Do not erase
-          ;; or insert text here: doc-view buffers visit the original PDF, so
-          ;; mutating buffer text can corrupt the document if it is saved.
-          (let* ((dims (kitty-graphics--doc-view-win-dims))
-                 (win-w (car dims))
-                 (win-h (cdr dims))
-                 (px (kitty-graphics--image-pixel-size abs-file))
-                 (base-dims (if px
-                                (kitty-graphics--compute-cell-dims
-                                 (car px) (cdr px) win-w win-h)
-                              (cons (min 40 win-w) (min 15 win-h))))
-                 (image-id (or cached-id (kitty-graphics--alloc-id))))
-            ;; Record the scale-1.0 fit size and source pixels; clamp any
-            ;; carried-over scroll to the new page's limits.  The page is
-            ;; drawn by `kitty-graphics--doc-view-refresh-overlay', which centers
-            ;; and crops it; the overlay only reserves the whole window.
-            (setq kitty-graphics--doc-view-fit base-dims
-                  kitty-graphics--doc-view-src
-                  (or px (cons (* win-w (or kitty-graphics--cell-pixel-width 8))
-                               (* win-h (or kitty-graphics--cell-pixel-height 16))))
-                  kitty-graphics--doc-view-scroll-col
-                  (min kitty-graphics--doc-view-scroll-col (kitty-graphics--doc-view-max-hscroll))
-                  kitty-graphics--doc-view-scroll-row
-                  (min kitty-graphics--doc-view-scroll-row (kitty-graphics--doc-view-max-vscroll)))
-            (unless cached-id
-              (when (funcall (kitty-graphics--backend-fn 'prepare) abs-file image-id)
-                (kitty-graphics--cache-put abs-file image-id)))
-            (when (or cached-id (gethash abs-file kitty-graphics--image-cache))
-              (setq kitty-graphics--doc-view-overlay
-                    (kitty-graphics--make-overlay (point-min) (point-max)
-                                             image-id win-w win-h
-                                             abs-file (and same-page old-pid)))
-              (when kitty-graphics--doc-view-overlay
-                (overlay-put kitty-graphics--doc-view-overlay 'kitty-graphics-doc-view t))
-              (when (and old-placements kitty-graphics--doc-view-overlay)
-                (overlay-put kitty-graphics--doc-view-overlay
-                             'kitty-graphics-placements old-placements))
-              (kitty-graphics--schedule-refresh))))
+               (size (or (file-attribute-size (file-attributes abs-file)) 0))
+               (dims (kitty-graphics--doc-view-win-dims))
+               (win-w (car dims))
+               (win-h (cdr dims))
+               (px (kitty-graphics--image-pixel-size abs-file)))
+          (cond
+           ;; The page file exists but is not readable yet: doc-view calls
+           ;; us while its converter is still writing it (reconvert's force
+           ;; display and the refresh timer both race the converter).
+           ;; Transmitting now would cache an empty/corrupt image under
+           ;; this path and blank the page for the rest of the session, so
+           ;; keep the stale page; doc-view force-re-displays when the
+           ;; conversion completes and calls us again with the whole file.
+           ;; A nil PX only counts as not-ready when an identify binary is
+           ;; available -- without ImageMagick PX is always nil and there
+           ;; is nothing to wait for.
+           ((or (zerop size)
+                (and (null px)
+                     (or (executable-find "magick")
+                         (executable-find "identify"))))
+            (kitty-graphics--log
+             "doc-view-insert: %s not fully written yet (size=%d), keeping stale page"
+             file size))
+           ((kitty-graphics--doc-view-ensure-resolution abs-file px win-w win-h)
+              ;; The page was rendered too small for a sharp display; a
+              ;; reconversion at higher DPI is now running and its
+              ;; callback re-displays the page.  Keep the stale page
+              ;; (and its overlay) on screen until then.
+              (kitty-graphics--log
+               "doc-view-insert: page too small, reconverting at higher dpi"))
+           (t
+            ;; Drop doc-view's own "Welcome to DocView!" conversion-progress text
+            ;; (left on doc-view's overlay by `doc-view-buffer-message'); our
+            ;; overlay is separate, so it would otherwise show through behind the page.
+            (when (fboundp 'doc-view-current-overlay)
+              (let ((dv-ov (ignore-errors (doc-view-current-overlay))))
+                (when (overlayp dv-ov)
+                  (overlay-put dv-ov 'display nil))))
+            ;; Retire the previous page overlay.  Re-rendering the SAME page (same
+            ;; image id, e.g. doc-view's double insert): keep the placement so the
+            ;; new one atomically replaces it (no flash, WezTerm #5892), and
+            ;; transplant its per-window placement so the same pid is reused.  A
+            ;; DIFFERENT page (new image id): Kitty placement ids are scoped per
+            ;; image id, so a new page at the same pid would NOT replace the old
+            ;; one and it would ghost — really delete the old placement (a=d).
+            (let* ((cached-id (kitty-graphics--cache-get abs-file))
+                   (old-ov kitty-graphics--doc-view-overlay)
+                   (old-id (and old-ov (overlay-get old-ov 'kitty-graphics-id)))
+                   (same-page (and old-id cached-id (eql old-id cached-id)))
+                   (old-pid (and old-ov (overlay-get old-ov 'kitty-graphics-pid)))
+                   (old-placements (and same-page old-ov
+                                        (copy-sequence
+                                         (overlay-get old-ov 'kitty-graphics-placements)))))
+              (when old-ov
+                (kitty-graphics--remove-overlay old-ov (and same-page old-pid))
+                (setq kitty-graphics--doc-view-overlay nil))
+              ;; Display the rendered page using only an overlay.  Do not erase
+              ;; or insert text here: doc-view buffers visit the original PDF, so
+              ;; mutating buffer text can corrupt the document if it is saved.
+              (let* ((base-dims (if px
+                                    (kitty-graphics--compute-cell-dims
+                                     (car px) (cdr px) win-w win-h)
+                                  (cons (min 40 win-w) (min 15 win-h))))
+                     (image-id (or cached-id (kitty-graphics--alloc-id))))
+                ;; Record the scale-1.0 fit size and source pixels; clamp any
+                ;; carried-over scroll to the new page's limits.  The page is
+                ;; drawn by `kitty-graphics--doc-view-refresh-overlay', which centers
+                ;; and crops it; the overlay only reserves the whole window.
+                (setq kitty-graphics--doc-view-fit base-dims
+                      kitty-graphics--doc-view-src
+                      (or px (cons (* win-w (or kitty-graphics--cell-pixel-width 8))
+                                   (* win-h (or kitty-graphics--cell-pixel-height 16))))
+                      kitty-graphics--doc-view-scroll-col
+                      (min kitty-graphics--doc-view-scroll-col (kitty-graphics--doc-view-max-hscroll))
+                      kitty-graphics--doc-view-scroll-row
+                      (min kitty-graphics--doc-view-scroll-row (kitty-graphics--doc-view-max-vscroll)))
+                (unless cached-id
+                  (when (funcall (kitty-graphics--backend-fn 'prepare) abs-file image-id)
+                    (kitty-graphics--cache-put abs-file image-id)))
+                (when (or cached-id (gethash abs-file kitty-graphics--image-cache))
+                  (setq kitty-graphics--doc-view-overlay
+                        (kitty-graphics--make-overlay (point-min) (point-max)
+                                                 image-id win-w win-h
+                                                 abs-file (and same-page old-pid)))
+                  (when kitty-graphics--doc-view-overlay
+                    (overlay-put kitty-graphics--doc-view-overlay 'kitty-graphics-doc-view t))
+                  (when (and old-placements kitty-graphics--doc-view-overlay)
+                    (overlay-put kitty-graphics--doc-view-overlay
+                                 'kitty-graphics-placements old-placements))
+                  (kitty-graphics--schedule-refresh)))))))
         (goto-char (point-min)))
     (apply orig-fn file args)))
 
 (defun kitty-graphics--doc-view-enlarge-advice (orig-fn factor)
   "Around advice for `doc-view-enlarge'.
 Updates `kitty-graphics--doc-view-scale' and re-renders the page in place.
-The stored page image is reused; only the crop/scale changes."
+The stored page image is reused; only the crop/scale changes.  Pages
+stay sharp up to the render headroom provided by
+`kitty-graphics-doc-view-resolution-scale'; zooming beyond that upscales."
   (if (and kitty-graphics-mode (not (display-graphic-p)))
       (when kitty-graphics--doc-view-overlay
         (setq kitty-graphics--doc-view-scale (* kitty-graphics--doc-view-scale factor))
@@ -8088,6 +8238,8 @@ translated to casty IPC commands."
     (advice-add 'shr-put-image :around
                 #'kitty-graphics--shr-put-image-advice))
   (with-eval-after-load 'doc-view
+    (advice-add 'clear-image-cache :around
+                #'kitty-graphics--clear-image-cache-advice)
     (advice-add 'doc-view-mode-p :around
                 #'kitty-graphics--doc-view-mode-p-advice)
     (advice-add 'doc-view-insert-image :around
@@ -8155,6 +8307,7 @@ translated to casty IPC commands."
   (remove-hook 'org-cycle-hook #'kitty-graphics--on-org-cycle)
   (advice-remove 'org-latex-preview #'kitty-graphics--org-latex-preview-advice)
   (advice-remove 'org--make-preview-overlay #'kitty-graphics--org-make-preview-overlay-advice)
+  (advice-remove 'clear-image-cache #'kitty-graphics--clear-image-cache-advice)
   (advice-remove 'doc-view-mode-p #'kitty-graphics--doc-view-mode-p-advice)
   (advice-remove 'doc-view-insert-image #'kitty-graphics--doc-view-insert-image-advice)
   (advice-remove 'doc-view-enlarge #'kitty-graphics--doc-view-enlarge-advice)
