@@ -293,7 +293,10 @@ changes; `kitty-graphics--browser-ipc-filter` parses replies and clears
   (1200) so a poisoned cache self-heals.  The check re-queries the cell
   size when the globals are invalidated (never trusts the 8x16 fallback),
   and stacking is prevented by `kitty-graphics--doc-view-requested-resolution'
-  rather than by skipping while other pages convert.
+  rather than by skipping while other pages convert.  Inserts that race
+  the converter (page file empty or still being written) are skipped so
+  the image cache is never poisoned by an empty transmit; doc-view's
+  completion re-display picks the page up once it is fully written.
 - **Limitation**: doc-view zoom beyond `kitty-graphics-doc-view-resolution-scale'
   upscales the stored page render instead of re-rendering; raise the
   defcustom for more headroom

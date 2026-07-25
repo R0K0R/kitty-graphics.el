@@ -6144,6 +6144,18 @@ TYPE is the document type symbol (pdf, dvi, ps, etc.)."
         (funcall orig-fn type))
     (funcall orig-fn type)))
 
+(defun kitty-graphics--clear-image-cache-advice (orig-fn &rest args)
+  "Around advice for `clear-image-cache'.
+On a terminal, `clear-image-cache' signals \"Window system frame
+should be used\".  doc-view's conversion-completion callback calls it
+before re-displaying, so the error propagates through `doc-view-sentinel'
+and kills the whole conversion chain (no re-display, no resolution.el).
+kitty-graphics transmits pixels directly and never uses the image.c
+cache on a terminal, so skipping the call there is safe."
+  (if (and kitty-graphics-mode (not (display-graphic-p)))
+      nil
+    (apply orig-fn args)))
+
 (defvar-local kitty-graphics--doc-view-overlay nil
   "The Kitty graphics overlay used for doc-view page display.")
 
@@ -6484,17 +6496,37 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
         ;; Remember current file for zoom commands
         (setq kitty-graphics--doc-view-current-file file)
         (let* ((abs-file (expand-file-name file))
+               (size (or (file-attribute-size (file-attributes abs-file)) 0))
                (dims (kitty-graphics--doc-view-win-dims))
                (win-w (car dims))
                (win-h (cdr dims))
                (px (kitty-graphics--image-pixel-size abs-file)))
-          (if (kitty-graphics--doc-view-ensure-resolution abs-file px win-w win-h)
+          (cond
+           ;; The page file exists but is not readable yet: doc-view calls
+           ;; us while its converter is still writing it (reconvert's force
+           ;; display and the refresh timer both race the converter).
+           ;; Transmitting now would cache an empty/corrupt image under
+           ;; this path and blank the page for the rest of the session, so
+           ;; keep the stale page; doc-view force-re-displays when the
+           ;; conversion completes and calls us again with the whole file.
+           ;; A nil PX only counts as not-ready when an identify binary is
+           ;; available -- without ImageMagick PX is always nil and there
+           ;; is nothing to wait for.
+           ((or (zerop size)
+                (and (null px)
+                     (or (executable-find "magick")
+                         (executable-find "identify"))))
+            (kitty-graphics--log
+             "doc-view-insert: %s not fully written yet (size=%d), keeping stale page"
+             file size))
+           ((kitty-graphics--doc-view-ensure-resolution abs-file px win-w win-h)
               ;; The page was rendered too small for a sharp display; a
               ;; reconversion at higher DPI is now running and its
               ;; callback re-displays the page.  Keep the stale page
               ;; (and its overlay) on screen until then.
               (kitty-graphics--log
-               "doc-view-insert: page too small, reconverting at higher dpi")
+               "doc-view-insert: page too small, reconverting at higher dpi"))
+           (t
             ;; Drop doc-view's own "Welcome to DocView!" conversion-progress text
             ;; (left on doc-view's overlay by `doc-view-buffer-message'); our
             ;; overlay is separate, so it would otherwise show through behind the page.
@@ -6553,7 +6585,7 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
                   (when (and old-placements kitty-graphics--doc-view-overlay)
                     (overlay-put kitty-graphics--doc-view-overlay
                                  'kitty-graphics-placements old-placements))
-                  (kitty-graphics--schedule-refresh))))))
+                  (kitty-graphics--schedule-refresh)))))))
         (goto-char (point-min)))
     (apply orig-fn file args)))
 
@@ -8206,6 +8238,8 @@ translated to casty IPC commands."
     (advice-add 'shr-put-image :around
                 #'kitty-graphics--shr-put-image-advice))
   (with-eval-after-load 'doc-view
+    (advice-add 'clear-image-cache :around
+                #'kitty-graphics--clear-image-cache-advice)
     (advice-add 'doc-view-mode-p :around
                 #'kitty-graphics--doc-view-mode-p-advice)
     (advice-add 'doc-view-insert-image :around
@@ -8273,6 +8307,7 @@ translated to casty IPC commands."
   (remove-hook 'org-cycle-hook #'kitty-graphics--on-org-cycle)
   (advice-remove 'org-latex-preview #'kitty-graphics--org-latex-preview-advice)
   (advice-remove 'org--make-preview-overlay #'kitty-graphics--org-make-preview-overlay-advice)
+  (advice-remove 'clear-image-cache #'kitty-graphics--clear-image-cache-advice)
   (advice-remove 'doc-view-mode-p #'kitty-graphics--doc-view-mode-p-advice)
   (advice-remove 'doc-view-insert-image #'kitty-graphics--doc-view-insert-image-advice)
   (advice-remove 'doc-view-enlarge #'kitty-graphics--doc-view-enlarge-advice)
