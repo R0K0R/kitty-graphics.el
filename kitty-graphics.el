@@ -7626,13 +7626,51 @@ at launch, so under a daemon only the launching client is painted; nil
 falls back to the selected terminal for the single-client case.
 Chunks are dropped while the process carries the `kitty-graphics-suppress'
 flag, set by `kitty-graphics--refresh-browser-overlay' while no window shows
-the browser buffer."
-  (when (and chunk (> (length chunk) 0)
-             (not (process-get proc 'kitty-graphics-suppress)))
-    (condition-case err
-        (send-string-to-terminal chunk (process-get proc 'kitty-graphics-terminal))
-      (error
-       (kitty-graphics--log "mpv-filter error: %s" (error-message-string err))))))
+the browser buffer.  casty's output is reworked on the way, see
+`kitty-graphics--casty-output'."
+  (cond
+   ((or (null chunk) (zerop (length chunk))))
+   ((process-get proc 'kitty-graphics-suppress)
+    ;; A frame cut off here must not be completed by the next one sent.
+    (process-put proc 'kitty-graphics-pending nil))
+   (t
+    (let ((out (if (string-prefix-p "kitty-graphics-casty" (process-name proc))
+                   (kitty-graphics--casty-output proc chunk)
+                 chunk)))
+      (when (> (length out) 0)
+        (condition-case err
+            (send-string-to-terminal out (process-get proc 'kitty-graphics-terminal))
+          (error
+           (kitty-graphics--log "mpv-filter error: %s" (error-message-string err)))))))))
+
+(defun kitty-graphics--casty-output (proc chunk)
+  "Return what of casty PROC's output CHUNK to send to the terminal now.
+casty positions each frame by moving the terminal cursor to the frame's
+corner (`ESC [ row ; col H') and never moves it back.  Emacs does not
+know the cursor moved, so its next update -- the character just typed --
+landed relative to the frame's corner until a full redraw repainted
+everything.  So what is sent is wrapped in save-cursor/restore-cursor
+\(DECSC/DECRC).  For that, output is sent only up to the end of the last
+complete escape (`ESC \\'); a trailing incomplete one is held in the
+`kitty-graphics-pending' process property until the rest arrives, so the
+restore never lands inside an escape.  Terminal mode switches are dropped
+as well: the modes are Emacs's, and casty's error path turns mouse
+reporting off and the cursor on for the whole terminal."
+  (let* ((pending (concat (or (process-get proc 'kitty-graphics-pending) "") chunk))
+         (end (let ((i (string-search "\e\\" pending)) last)
+                (while i
+                  (setq last (+ i 2)
+                        i (string-search "\e\\" pending last)))
+                (if (string-search "\e" pending (or last 0))
+                    (or last 0)
+                  (length pending)))))
+    (process-put proc 'kitty-graphics-pending (substring pending end))
+    (if (zerop end)
+        ""
+      (concat "\e7"
+              (replace-regexp-in-string "\e\\[\\?[0-9;]*[hl]" ""
+                                        (substring pending 0 end) t t)
+              "\e8"))))
 
 (defun kitty-graphics--mpv-buffer ()
   "Return the buffer currently hosting an mpv playback, or nil.
