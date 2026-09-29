@@ -1167,6 +1167,10 @@ across window hide/show.")
   "Pending socket-poll timer of `kitty-graphics--browser-ipc-connect'.
 Stored so `kitty-graphics--browser-cleanup' can cancel an in-flight poll.")
 
+(defvar-local kitty-graphics--browser-url nil
+  "The URL this buffer's browser was opened on.
+Used by `kitty-graphics-browser-restart'.")
+
 (defvar-local kitty-graphics--browser-overlay nil
   "The overlay reserving space for the browser frame.")
 
@@ -7913,6 +7917,44 @@ Fills the selected window body, clamped to the configured maxima."
          (rows (max 1 (min (1- (window-body-height)) kitty-graphics-browser-max-height))))
     (list cols rows (* cols cw) (* rows ch))))
 
+(defun kitty-graphics--browser-fit-to-window (win &optional force)
+  "Resize the browser frame to WIN when its size changed, or with FORCE.
+The size is WIN's, computed as `kitty-graphics-browse' does at launch;
+it used to be sent only then, so after a resize the page kept its
+launch size and ran past the window or fell short of it.  The buffer
+holds one blank line per frame row, which is what reserves the space,
+so lines are added or removed to match; the overlay is rear-advancing,
+so they join or leave it.  casty's `set-geometry' takes :cols/:rows and
+re-emulates the viewport.  Returns non-nil when a new size was sent."
+  (let* ((geom (with-selected-window win (kitty-graphics--browser-compute-geometry)))
+         (cols (nth 0 geom))
+         (rows (nth 1 geom)))
+    (when (or force
+              (not (eql cols kitty-graphics--browser-cols))
+              (not (eql rows kitty-graphics--browser-rows)))
+      (let ((inhibit-read-only t)
+            (have (count-lines (point-min) (point-max))))
+        (save-excursion
+          (cond
+           ((< have rows)
+            (goto-char (point-max))
+            (insert (make-string (- rows have) ?\n)))
+           ((> have rows)
+            (goto-char (point-min))
+            (forward-line rows)
+            (delete-region (point) (point-max))))))
+      (setq kitty-graphics--browser-cols cols
+            kitty-graphics--browser-rows rows)
+      (let ((pos (kitty-graphics--browser-overlay-position win)))
+        (kitty-graphics--log "browser: resize cols=%d rows=%d" cols rows)
+        (kitty-graphics--browser-send
+         (append (list :cmd "set-geometry" :cols cols :rows rows)
+                 (when pos (list :top (car pos) :left (cdr pos)))))
+        (when pos
+          (setq kitty-graphics--browser-last-row (car pos)
+                kitty-graphics--browser-last-col (cdr pos))))
+      t)))
+
 (defun kitty-graphics--browser-overlay-position (win)
   "Return (ROW . COL) terminal position of the browser overlay in WIN, or nil.
 ROW and COL are 1-based.  Returns nil when the overlay is not visible
@@ -7979,6 +8021,7 @@ casty repaint the frame."
             (process-put proc 'kitty-graphics-suppress nil)
             (setq kitty-graphics--browser-last-row nil
                   kitty-graphics--browser-last-col nil))
+          (kitty-graphics--browser-fit-to-window win)
           (let ((pos (kitty-graphics--browser-overlay-position win)))
             (when pos
               (let ((row (car pos))
@@ -8090,6 +8133,7 @@ Requires `kitty-graphics-enable-browser' to be non-nil and casty installed."
     ;; Replace any existing session in this buffer.
     (when kitty-graphics--browser-process
       (kitty-graphics--browser-cleanup))
+    (setq kitty-graphics--browser-url url)
     (let* ((geom (kitty-graphics--browser-compute-geometry))
            (cols (nth 0 geom))
            (rows (nth 1 geom))
@@ -8218,6 +8262,30 @@ Requires `kitty-graphics-enable-browser' to be non-nil and casty installed."
 
 (define-obsolete-function-alias 'kitty-gfx-browser-reload 'kitty-graphics-browser-reload "1.3.0")
 
+(defun kitty-graphics-browser-fit ()
+  "Fit the page to the browser's window again, and reload it.
+For when the frame does not match its window anyway: the size is sent
+only when the window's size in cells changes, so a changed font size,
+or casty losing track, goes uncorrected.  The page is reloaded too:
+laid out for the wrong size, it can keep a scroll offset that leaves it
+out of view."
+  (interactive)
+  (let ((win (kitty-graphics--browser-canonical-window)))
+    (unless win (user-error "The browser is not shown in any window"))
+    (kitty-graphics--browser-fit-to-window win t)
+    (kitty-graphics-browser-reload)
+    (kitty-graphics--schedule-refresh t)))
+
+(defun kitty-graphics-browser-restart ()
+  "Restart the browser on the page it was opened on."
+  (interactive)
+  (let ((url (or kitty-graphics--browser-url
+                 (user-error "No URL recorded for this browser")))
+        (win (kitty-graphics--browser-canonical-window)))
+    (if (window-live-p win)
+        (with-selected-window win (kitty-graphics-browse url))
+      (kitty-graphics-browse url))))
+
 (defun kitty-graphics-browser-open-url (url)
   "Navigate the browser to URL."
   (interactive (list (read-string "URL: " "https://")))
@@ -8316,6 +8384,8 @@ be no-ops, so they are dropped rather than sent."
     (define-key map "H"       #'kitty-graphics-browser-back)
     (define-key map "L"       #'kitty-graphics-browser-forward)
     (define-key map "r"       #'kitty-graphics-browser-reload)
+    (define-key map "="       #'kitty-graphics-browser-fit)
+    (define-key map "R"       #'kitty-graphics-browser-restart)
     (define-key map "o"       #'kitty-graphics-browser-open-url)
     (define-key map (kbd ":") #'kitty-graphics-browser-open-url)
     (define-key map "f"       #'kitty-graphics-browser-hints)
