@@ -6475,6 +6475,7 @@ panned via `kitty-graphics--doc-view-scroll-col'/`-row'.  Placeholder mode
                    (w (max 1 (min (- pw x) (round (* vc spx)))))
                    (h (max 1 (min (- ph y) (round (* vr spy)))))
                    (pid (kitty-graphics--record-image-placement ov win term-row term-col vc vr nil)))
+              (kitty-graphics--doc-view-clear-placeholders)
               (if (eq (kitty-graphics--effective-placement-mode) 'direct)
                   (let ((kitty-graphics--placement-z
                          (and kitty-graphics-draw-below-popups
@@ -6630,10 +6631,7 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
             ;; Drop doc-view's own "Welcome to DocView!" conversion-progress text
             ;; (left on doc-view's overlay by `doc-view-buffer-message'); our
             ;; overlay is separate, so it would otherwise show through behind the page.
-            (when (fboundp 'doc-view-current-overlay)
-              (let ((dv-ov (ignore-errors (doc-view-current-overlay))))
-                (when (overlayp dv-ov)
-                  (overlay-put dv-ov 'display nil))))
+            (kitty-graphics--doc-view-clear-placeholders)
             ;; Retire the previous page overlay.  Re-rendering the SAME page (same
             ;; image id, e.g. doc-view's double insert): keep the placement so the
             ;; new one atomically replaces it (no flash, WezTerm #5892), and
@@ -6689,6 +6687,18 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
                   (kitty-graphics--schedule-refresh)))))))
         (goto-char (point-min)))
     (apply orig-fn file args)))
+
+(defun kitty-graphics--doc-view-clear-placeholders ()
+  "Drop doc-view's placeholder text from every page overlay in this buffer.
+doc-view keeps one page overlay per window, and sets a new window's up
+with `copy-overlay' -- placeholder included -- so clearing only the
+current window's left the copies: in a layout, a PDF shown from a split
+kept \"Welcome to DocView!\" in its cells, on top of a page drawn below
+text.  The kitty page is its own overlay, so doc-view's are not needed."
+  (dolist (ov (overlays-in (point-min) (point-max)))
+    (when (and (overlay-get ov 'doc-view)
+               (stringp (overlay-get ov 'display)))
+      (overlay-put ov 'display nil))))
 
 (defun kitty-graphics--doc-view-buffer-message-advice (orig-fn &rest args)
   "Around advice for `doc-view-buffer-message'.
