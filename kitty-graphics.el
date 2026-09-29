@@ -337,6 +337,39 @@ Helium, Brave, …) instead of downloading Chrome Headless Shell."
 
 (define-obsolete-variable-alias 'kitty-gfx-browser-max-width 'kitty-graphics-browser-max-width "1.3.0")
 
+;; Kitty draws an image above text unless told otherwise, so anything
+;; Emacs draws in the cells an image covers -- a completion popup, say --
+;; goes under it.  Kitty stacks by z-index: below -1073741824 an image is
+;; drawn under every cell with a background colour of its own, and over
+;; cells left at the terminal's default background.
+(defcustom kitty-graphics-draw-below-popups t
+  "Non-nil draws doc-view pages and browser frames under popups.
+They are placed below cells with a background of their own, and their
+buffers are drawn on the terminal's default background, which Emacs
+leaves to the terminal, instead of the theme's, which it writes out.
+The image then shows through its own cells, and a popup drawn over it,
+which has a background of its own, covers it."
+  :type 'boolean
+  :group 'kitty-graphics)
+
+(defconst kitty-graphics--below-backgrounds-z -1073741825
+  "Kitty z-index under cells with a background colour of their own.")
+
+(defvar kitty-graphics--placement-z nil
+  "Z-index `kitty-graphics--place-image' gives placements, or nil for none.")
+
+(defvar-local kitty-graphics--default-background-cookie nil
+  "Face remapping made by `kitty-graphics--use-terminal-background'.")
+
+(defun kitty-graphics--use-terminal-background ()
+  "Draw the current buffer on the terminal's default background.
+Only with `kitty-graphics-draw-below-popups', in a terminal frame."
+  (when (and kitty-graphics-draw-below-popups
+             (not (display-graphic-p))
+             (not kitty-graphics--default-background-cookie))
+    (setq kitty-graphics--default-background-cookie
+          (face-remap-add-relative 'default :background "unspecified-bg"))))
+
 (defcustom kitty-graphics-browser-max-width 200
   "Maximum width in columns for the inline browser frame."
   :type 'integer
@@ -1549,6 +1582,8 @@ with pane-relative coordinates."
   (kitty-graphics--terminal-send
    (concat (format "\e_Gq=2,a=p,i=%d,p=%d,c=%d,r=%d"
                    image-id placement-id cols rows)
+           (when kitty-graphics--placement-z
+             (format ",z=%d" kitty-graphics--placement-z))
            (when (and src-x src-y src-w src-h)
              (format ",x=%d,y=%d,w=%d,h=%d" src-x src-y src-w src-h))
            "\e\\"))
@@ -6437,7 +6472,10 @@ panned via `kitty-graphics--doc-view-scroll-col'/`-row'.  Placeholder mode
                    (h (max 1 (min (- ph y) (round (* vr spy)))))
                    (pid (kitty-graphics--record-image-placement ov win term-row term-col vc vr nil)))
               (if (eq (kitty-graphics--effective-placement-mode) 'direct)
-                  (kitty-graphics--place-image id pid vc vr term-row term-col x y w h)
+                  (let ((kitty-graphics--placement-z
+                         (and kitty-graphics-draw-below-popups
+                              kitty-graphics--below-backgrounds-z)))
+                    (kitty-graphics--place-image id pid vc vr term-row term-col x y w h))
                 (kitty-graphics--kitty-place ov id pid vc vr term-row term-col)))
           ;; Sixel (or other): erase the previous area first when it moved or
           ;; resized, since the stateless backend would otherwise leave old
@@ -6639,7 +6677,8 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
                                                  image-id win-w win-h
                                                  abs-file (and same-page old-pid)))
                   (when kitty-graphics--doc-view-overlay
-                    (overlay-put kitty-graphics--doc-view-overlay 'kitty-graphics-doc-view t))
+                    (overlay-put kitty-graphics--doc-view-overlay 'kitty-graphics-doc-view t)
+                    (kitty-graphics--use-terminal-background))
                   (when (and old-placements kitty-graphics--doc-view-overlay)
                     (overlay-put kitty-graphics--doc-view-overlay
                                  'kitty-graphics-placements old-placements))
@@ -7667,10 +7706,14 @@ reporting off and the cursor on for the whole terminal."
     (process-put proc 'kitty-graphics-pending (substring pending end))
     (if (zerop end)
         ""
-      (concat "\e7"
-              (replace-regexp-in-string "\e\\[\\?[0-9;]*[hl]" ""
-                                        (substring pending 0 end) t t)
-              "\e8"))))
+      (let ((out (replace-regexp-in-string "\e\\[\\?[0-9;]*[hl]" ""
+                                           (substring pending 0 end) t t)))
+        (when kitty-graphics-draw-below-popups
+          (setq out (replace-regexp-in-string
+                     "\e_Ga=T,"
+                     (format "\e_Ga=T,z=%d," kitty-graphics--below-backgrounds-z)
+                     out t t)))
+        (concat "\e7" out "\e8")))))
 
 (defun kitty-graphics--mpv-buffer ()
   "Return the buffer currently hosting an mpv playback, or nil.
@@ -8288,6 +8331,7 @@ translated to casty IPC commands."
   (setq buffer-read-only t)
   (setq-local cursor-type nil)
   (buffer-disable-undo)
+  (kitty-graphics--use-terminal-background)
   ;; Terminal Emacs only receives mouse events (wheel scroll, click-to-follow
   ;; links) when xterm-mouse-mode is on.  Enable it for the browser, remembering
   ;; to restore the prior state on cleanup.
