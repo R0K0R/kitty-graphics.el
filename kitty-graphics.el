@@ -3320,6 +3320,28 @@ Vanilla sessions without line numbers always get 0."
         (round (line-number-display-width 'columns)))
     0))
 
+(defun kitty-graphics--doc-view-screen-pos (ov &optional win)
+  "Return (TERM-ROW . TERM-COL) for doc-view page overlay OV in WIN, or nil.
+The general path asks the display engine -- `window-end' with UPDATE,
+`pos-visible-in-window-p', `posn-at-point' -- about the overlay, which
+covers the whole buffer: in doc-view the whole PDF file as text.  For a
+large PDF (90 MB) that stalled Emacs in a refresh timer.  None of it is
+needed: the page overlay starts at the buffer's first character and
+doc-view keeps it at the window's start, so the page sits at the
+top-left of the window's text area, in column 0 whatever the horizontal
+scroll."
+  (let* ((buf (overlay-buffer ov))
+         (pos (overlay-start ov))
+         (win (and buf
+                   (or (and (window-live-p win) (eq (window-buffer win) buf) win)
+                       (get-buffer-window buf)))))
+    (when (and win pos (= (window-start win) pos))
+      (let ((body (window-body-edges win)))
+        (cons (+ (nth 1 body) 1)
+              (+ (nth 0 body)
+                 (kitty-graphics--window-line-number-width win)
+                 1))))))
+
 (defun kitty-graphics--overlay-screen-pos (ov &optional win)
   "Return (TERM-ROW . TERM-COL) for overlay OV in WIN, or nil if hidden.
 Coordinates are 1-indexed terminal positions.  WIN defaults to a window
@@ -3327,59 +3349,63 @@ showing OV's buffer, for interactive debug helpers.
 The column accounts for window margins/fringes, the line-number display
 width, and horizontal scroll.
 Returns nil when the overlay position is outside the visible window
-range, inside a folded region, or not visible on screen."
-  (let* ((buf (overlay-buffer ov))
-         (pos (overlay-start ov))
-         (win (and buf
-                   (or (and (window-live-p win)
-                            (eq (window-buffer win) buf)
-                            win)
-                       (get-buffer-window buf)))))
-    ;; Fast path: skip entirely if no window, no position, or
-    ;; buffer position is outside the visible window range.
-    ;; This avoids expensive posn-at-point and fold checks.
-    (when (and win pos
-               (<= (window-start win) pos)
-               (<= pos (window-end win t))
-               (pos-visible-in-window-p pos win)
-               ;; Check structural folding (outline, org-fold).
-               ;; Single check — result used for both log and gate.
-               (not (kitty-graphics--in-folded-region-p pos)))
-      ;; posn-col-row returns coordinates relative to the window BODY
-      ;; (text area).  Use window-body-edges to convert to frame coords.
-      ;; body-left accounts for margins/fringes; body-top accounts for
-      ;; header-line.  +1 converts 0-based frame coords to 1-based terminal.
-      (let* ((body (window-body-edges win))
-             (body-left (nth 0 body))
-             (body-top (nth 1 body))
-             (win-pos (posn-at-point pos win)))
-        (when win-pos
-          (let* ((col-row (posn-col-row win-pos))
-                 (row (cdr col-row))
-                 (posn-col (car col-row))
-                 (posn-xy (posn-x-y win-pos))
-                 ;; `posn-col-row' is derived from pixel coordinates and can
-                 ;; report the position after an overlay's `display' string
-                 ;; rather than the overlay's logical start.  That is exactly
-                 ;; the wrong edge for Sixel placement: the terminal graphic
-                 ;; must be emitted at the top-left of the reserved cells.
-                 ;; In terminal Emacs text cells are fixed-width, so the
-                 ;; buffer column at POS is the reliable horizontal anchor.
-                 (buffer-col (save-excursion
-                               (goto-char pos)
-                               (current-column)))
-                 (visual-col (max 0 (- buffer-col (window-hscroll win))))
-                 (lnum-width (kitty-graphics--window-line-number-width win)))
-            (kitty-graphics--log "screen-pos-detail: pid=%s posn-col=%d buffer-col=%d visual-col=%d lnum-width=%d posn-row=%d posn-xy=%S body-left=%d body-top=%d"
-                            (overlay-get ov 'kitty-graphics-pid) posn-col buffer-col
-                            visual-col lnum-width row posn-xy body-left body-top)
-            (when col-row
-              (let ((result (cons (+ body-top row 1)
-                                  (+ body-left lnum-width visual-col 1))))
-                (kitty-graphics--log "screen-pos: pid=%s pos=%d win=%s -> row=%d col=%d"
-                                (overlay-get ov 'kitty-graphics-pid) pos win
-                                (car result) (cdr result))
-                result))))))))
+range, inside a folded region, or not visible on screen.
+A doc-view page is answered directly, see
+`kitty-graphics--doc-view-screen-pos'."
+  (if (overlay-get ov 'kitty-graphics-doc-view)
+      (kitty-graphics--doc-view-screen-pos ov win)
+    (let* ((buf (overlay-buffer ov))
+           (pos (overlay-start ov))
+           (win (and buf
+                     (or (and (window-live-p win)
+                              (eq (window-buffer win) buf)
+                              win)
+                         (get-buffer-window buf)))))
+      ;; Fast path: skip entirely if no window, no position, or
+      ;; buffer position is outside the visible window range.
+      ;; This avoids expensive posn-at-point and fold checks.
+      (when (and win pos
+                 (<= (window-start win) pos)
+                 (<= pos (window-end win t))
+                 (pos-visible-in-window-p pos win)
+                 ;; Check structural folding (outline, org-fold).
+                 ;; Single check — result used for both log and gate.
+                 (not (kitty-graphics--in-folded-region-p pos)))
+        ;; posn-col-row returns coordinates relative to the window BODY
+        ;; (text area).  Use window-body-edges to convert to frame coords.
+        ;; body-left accounts for margins/fringes; body-top accounts for
+        ;; header-line.  +1 converts 0-based frame coords to 1-based terminal.
+        (let* ((body (window-body-edges win))
+               (body-left (nth 0 body))
+               (body-top (nth 1 body))
+               (win-pos (posn-at-point pos win)))
+          (when win-pos
+            (let* ((col-row (posn-col-row win-pos))
+                   (row (cdr col-row))
+                   (posn-col (car col-row))
+                   (posn-xy (posn-x-y win-pos))
+                   ;; `posn-col-row' is derived from pixel coordinates and can
+                   ;; report the position after an overlay's `display' string
+                   ;; rather than the overlay's logical start.  That is exactly
+                   ;; the wrong edge for Sixel placement: the terminal graphic
+                   ;; must be emitted at the top-left of the reserved cells.
+                   ;; In terminal Emacs text cells are fixed-width, so the
+                   ;; buffer column at POS is the reliable horizontal anchor.
+                   (buffer-col (save-excursion
+                                 (goto-char pos)
+                                 (current-column)))
+                   (visual-col (max 0 (- buffer-col (window-hscroll win))))
+                   (lnum-width (kitty-graphics--window-line-number-width win)))
+              (kitty-graphics--log "screen-pos-detail: pid=%s posn-col=%d buffer-col=%d visual-col=%d lnum-width=%d posn-row=%d posn-xy=%S body-left=%d body-top=%d"
+                                   (overlay-get ov 'kitty-graphics-pid) posn-col buffer-col
+                                   visual-col lnum-width row posn-xy body-left body-top)
+              (when col-row
+                (let ((result (cons (+ body-top row 1)
+                                    (+ body-left lnum-width visual-col 1))))
+                  (kitty-graphics--log "screen-pos: pid=%s pos=%d win=%s -> row=%d col=%d"
+                                       (overlay-get ov 'kitty-graphics-pid) pos win
+                                       (car result) (cdr result))
+                  result)))))))))
 
 ;;;; Refresh cycle
 
