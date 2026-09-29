@@ -3937,77 +3937,80 @@ heading blocks while their cached coordinates are still valid."
     (set-window-parameter win 'kitty-graphics-sig nil)
     (kitty-graphics--schedule-refresh)))
 
-(defun kitty-graphics--on-buffer-change (_frame-or-window)
+(defun kitty-graphics--on-buffer-change (frame-or-window)
   "Handle buffer change for image refresh.
 Deletes placements for buffers no longer visible in any window,
 then invalidates position caches and schedules a refresh.
 Newly displayed org buffers with heading sizes enabled get their
-viewport instrumented via `kitty-graphics--heading-scan-visible'."
-  (kitty-graphics--log "on-buffer-change: cleaning up non-visible placements")
-  (kitty-graphics--heading-scan-visible)
-  (kitty-graphics--invalidate-window-signatures)
-  ;; Find which buffers are currently visible
-  (let ((visible-bufs nil))
-    (walk-windows (lambda (w) (push (window-buffer w) visible-bufs))
-                  nil 'visible)
-    (kitty-graphics--log "on-buffer-change: visible-bufs=(%s)"
-                    (mapconcat #'buffer-name visible-bufs ", "))
-    ;; Drop per-window records on any mpv overlay whose buffer is no
-    ;; longer visible OR whose recorded window now shows a different
-    ;; buffer.  Prevents stale window entries from confusing
-    ;; `kitty-graphics--mpv-canonical-window'.
-    (dolist (buf (buffer-list))
-      (with-current-buffer buf
-        (when (and kitty-graphics--mpv-overlay
-                   (overlay-buffer kitty-graphics--mpv-overlay))
-          (let ((ov kitty-graphics--mpv-overlay))
-            (dolist (entry (copy-sequence
-                            (overlay-get ov 'kitty-graphics-placements)))
-              (let ((w (car entry)))
-                (unless (and (window-live-p w)
-                             (eq (window-buffer w)
-                                 (overlay-buffer ov)))
-                  (kitty-graphics--forget-image-placement ov w))))))))
-    ;; Delete placements for buffers that are no longer in any window
-    (dolist (buf (buffer-list))
-      (with-current-buffer buf
-        (when (and kitty-graphics--overlays
-                   (not (memq buf visible-bufs)))
-          (kitty-graphics--log "on-buffer-change: deleting placements for hidden buf=%s"
-                          (buffer-name))
-          (dolist (ov kitty-graphics--overlays)
-            (when (overlay-buffer ov)
-              (if (overlay-get ov 'kitty-graphics-heading)
-                  (kitty-graphics--heading-reset ov)
-                ;; Image overlay — delete all terminal placements, including
-                ;; multiple windows that were showing this buffer.
-                (kitty-graphics--delete-image-placements ov))))))))
-  ;; Reset cache for visible buffers so they re-place correctly.  Delete the
-  ;; terminal placements FIRST (via `kitty-graphics--delete-image-placements',
-  ;; which also clears the record + last-row/col) — nil-ing the record
-  ;; without deleting would orphan the on-screen copy at its old position
-  ;; (a ghost) because the next refresh allocates a fresh placement id.
-  ;; Heading overlays preserve cache (same rationale as on-window-change).
-  (kitty-graphics--sync-begin)
-  (unwind-protect
+viewport instrumented via `kitty-graphics--heading-scan-visible'.
+A change in a child frame, FRAME-OR-WINDOW's, is ignored: see
+`kitty-graphics--child-frame-p'."
+  (unless (kitty-graphics--child-frame-p frame-or-window)
+    (kitty-graphics--log "on-buffer-change: cleaning up non-visible placements")
+    (kitty-graphics--heading-scan-visible)
+    (kitty-graphics--invalidate-window-signatures)
+    ;; Find which buffers are currently visible
+    (let ((visible-bufs nil))
+      (walk-windows (lambda (w) (push (window-buffer w) visible-bufs))
+                    nil 'visible)
+      (kitty-graphics--log "on-buffer-change: visible-bufs=(%s)"
+                           (mapconcat #'buffer-name visible-bufs ", "))
+      ;; Drop per-window records on any mpv overlay whose buffer is no
+      ;; longer visible OR whose recorded window now shows a different
+      ;; buffer.  Prevents stale window entries from confusing
+      ;; `kitty-graphics--mpv-canonical-window'.
       (dolist (buf (buffer-list))
         (with-current-buffer buf
-          (dolist (ov kitty-graphics--overlays)
-            (when (and (overlay-buffer ov)
-                       (not (overlay-get ov 'kitty-graphics-heading)))
-              (kitty-graphics--delete-image-placements ov)))))
-    (kitty-graphics--sync-end))
-  ;; Longer debounce: cancel any fast leading-edge cooldown and
-  ;; schedule a 0.1s delayed refresh to let buffer switch settle.
-  (when kitty-graphics--render-timer
-    (cancel-timer kitty-graphics--render-timer))
-  (setq kitty-graphics--refresh-pending nil
-        kitty-graphics--render-timer
-        (run-at-time 0.1 nil
-                     (lambda ()
-                       (setq kitty-graphics--render-timer nil
-                             kitty-graphics--force-redisplay t)
-                       (kitty-graphics--refresh)))))
+          (when (and kitty-graphics--mpv-overlay
+                     (overlay-buffer kitty-graphics--mpv-overlay))
+            (let ((ov kitty-graphics--mpv-overlay))
+              (dolist (entry (copy-sequence
+                              (overlay-get ov 'kitty-graphics-placements)))
+                (let ((w (car entry)))
+                  (unless (and (window-live-p w)
+                               (eq (window-buffer w)
+                                   (overlay-buffer ov)))
+                    (kitty-graphics--forget-image-placement ov w))))))))
+      ;; Delete placements for buffers that are no longer in any window
+      (dolist (buf (buffer-list))
+        (with-current-buffer buf
+          (when (and kitty-graphics--overlays
+                     (not (memq buf visible-bufs)))
+            (kitty-graphics--log "on-buffer-change: deleting placements for hidden buf=%s"
+                                 (buffer-name))
+            (dolist (ov kitty-graphics--overlays)
+              (when (overlay-buffer ov)
+                (if (overlay-get ov 'kitty-graphics-heading)
+                    (kitty-graphics--heading-reset ov)
+                  ;; Image overlay — delete all terminal placements, including
+                  ;; multiple windows that were showing this buffer.
+                  (kitty-graphics--delete-image-placements ov))))))))
+    ;; Reset cache for visible buffers so they re-place correctly.  Delete the
+    ;; terminal placements FIRST (via `kitty-graphics--delete-image-placements',
+    ;; which also clears the record + last-row/col) — nil-ing the record
+    ;; without deleting would orphan the on-screen copy at its old position
+    ;; (a ghost) because the next refresh allocates a fresh placement id.
+    ;; Heading overlays preserve cache (same rationale as on-window-change).
+    (kitty-graphics--sync-begin)
+    (unwind-protect
+        (dolist (buf (buffer-list))
+          (with-current-buffer buf
+            (dolist (ov kitty-graphics--overlays)
+              (when (and (overlay-buffer ov)
+                         (not (overlay-get ov 'kitty-graphics-heading)))
+                (kitty-graphics--delete-image-placements ov)))))
+      (kitty-graphics--sync-end))
+    ;; Longer debounce: cancel any fast leading-edge cooldown and
+    ;; schedule a 0.1s delayed refresh to let buffer switch settle.
+    (when kitty-graphics--render-timer
+      (cancel-timer kitty-graphics--render-timer))
+    (setq kitty-graphics--refresh-pending nil
+          kitty-graphics--render-timer
+          (run-at-time 0.1 nil
+                       (lambda ()
+                         (setq kitty-graphics--render-timer nil
+                               kitty-graphics--force-redisplay t)
+                         (kitty-graphics--refresh))))))
 
 (defun kitty-graphics--frame-resized-p (frame)
   "Return non-nil if FRAME's pixel size changed since the last call.
@@ -4035,6 +4038,19 @@ the next placement."
                       (hash-table-count h))
       (clrhash h))))
 
+(defun kitty-graphics--child-frame-p (frame-or-window)
+  "Return non-nil when FRAME-OR-WINDOW is, or is in, a child frame.
+A child frame -- a completion popup such as Corfu's, which on Emacs 31
+is a child frame in a terminal too -- is drawn over its parent without
+changing any of the parent's windows.  Showing, moving or resizing one
+still runs the window size and buffer change hooks for it, and treating
+those as a layout change deleted and re-placed every image ~100 ms
+later: images blinked on each popup update."
+  (let ((frame (if (windowp frame-or-window)
+                   (window-frame frame-or-window)
+                 frame-or-window)))
+    (and (frame-live-p frame) (frame-parent frame))))
+
 (defun kitty-graphics--on-window-change (frame)
   "Handle window configuration change for image refresh.
 Invalidates cell pixel size, deletes stale image placements, then
@@ -4043,72 +4059,74 @@ at their new positions.  On a terminal-level resize, also forgets the
 transmitted-image set so kitty re-receives evicted image data.  Uses a
 longer debounce than normal refresh to let Emacs finish window layout
 transitions (e.g., when closing a split, Emacs briefly shows two
-windows for the same buffer before settling to one)."
-  (kitty-graphics--log "on-window-change: deleting stale placements and invalidating cell size")
-  (kitty-graphics--heading-scan-visible)
-  (kitty-graphics--invalidate-window-signatures)
-  (setq kitty-graphics--cell-pixel-width nil
-        kitty-graphics--cell-pixel-height nil)
-  ;; Invalidate FRAME's terminal cell-size parameter too, so the
-  ;; per-terminal query guard re-queries it (a resize can change the
-  ;; pixel cell size, and the guard keys on the parameter, not the global).
-  ;; When the frame itself resized, the terminal may have dropped image
-  ;; data during its relayout, so forget the transmitted set and let the
-  ;; refresh re-transmit (issue #36).
-  (let ((term (and (frame-live-p frame) (frame-terminal frame))))
-    (when (and term (terminal-live-p term))
-      (set-terminal-parameter term 'kitty-graphics-cell-w nil)
-      (set-terminal-parameter term 'kitty-graphics-cell-h nil)
-      (when (kitty-graphics--frame-resized-p frame)
-        (kitty-graphics--forget-terminal-transmits term))))
-  ;; Clear stale per-window records on any mpv overlay so the next
-  ;; refresh recomputes coordinates against the new layout.  The mpv
-  ;; overlay is NEVER pushed onto `kitty-graphics--overlays' (mpv has no
-  ;; kitty placement ID), so the dolist below would not touch it; it
-  ;; lives only on the buffer-local `kitty-graphics--mpv-overlay'.
-  (dolist (buf (buffer-list))
-    (with-current-buffer buf
-      (when (and kitty-graphics--mpv-overlay
-                 (overlay-buffer kitty-graphics--mpv-overlay))
-        (overlay-put kitty-graphics--mpv-overlay 'kitty-graphics-placements nil))))
-  ;; Delete image placements before clearing their cached positions.
-  ;; Window splits/resizes can move an image from the middle of the old
-  ;; window to the center of the new pane(s).  A buffer can also be shown
-  ;; in multiple windows, and closing one of those windows leaves terminal
-  ;; pixels that no remaining window can discover from `posn-at-point'.
-  ;; Therefore image placements are tracked and deleted per window before
-  ;; the cache is reset.  Some terminals do not reliably erase an old
-  ;; direct placement when it is re-placed at a different geometry, and
-  ;; Sixel is stateless and must be explicitly overwritten.
-  ;;
-  ;; Heading multicell blocks are erased at their cached position here
-  ;; too: unlike a scroll (handled by `kitty-graphics--on-window-scroll',
-  ;; which preserves the cache for old→new comparison), a layout change
-  ;; can drop a popup/minibuffer window over the buffer, and Emacs will
-  ;; not repaint the cells the block occupies — so the stale glyphs would
-  ;; bleed into the popup unless we wipe them explicitly.
-  (kitty-graphics--sync-begin)
-  (unwind-protect
-      (progn
-        (kitty-graphics--heading-erase-all)
-        (dolist (buf (buffer-list))
-          (with-current-buffer buf
-            (dolist (ov kitty-graphics--overlays)
-              (when (and (overlay-buffer ov)
-                         (not (overlay-get ov 'kitty-graphics-heading)))
-                (kitty-graphics--delete-image-placements ov))))))
-    (kitty-graphics--sync-end))
-  ;; Longer debounce: cancel any fast leading-edge cooldown and
-  ;; schedule a 0.1s delayed refresh to let window layout settle.
-  (when kitty-graphics--render-timer
-    (cancel-timer kitty-graphics--render-timer))
-  (setq kitty-graphics--refresh-pending nil
-        kitty-graphics--render-timer
-        (run-at-time 0.1 nil
-                     (lambda ()
-                       (setq kitty-graphics--render-timer nil
-                             kitty-graphics--force-redisplay t)
-                       (kitty-graphics--refresh)))))
+windows for the same buffer before settling to one).
+A change in a child frame is ignored: see `kitty-graphics--child-frame-p'."
+  (unless (kitty-graphics--child-frame-p frame)
+    (kitty-graphics--log "on-window-change: deleting stale placements and invalidating cell size")
+    (kitty-graphics--heading-scan-visible)
+    (kitty-graphics--invalidate-window-signatures)
+    (setq kitty-graphics--cell-pixel-width nil
+          kitty-graphics--cell-pixel-height nil)
+    ;; Invalidate FRAME's terminal cell-size parameter too, so the
+    ;; per-terminal query guard re-queries it (a resize can change the
+    ;; pixel cell size, and the guard keys on the parameter, not the global).
+    ;; When the frame itself resized, the terminal may have dropped image
+    ;; data during its relayout, so forget the transmitted set and let the
+    ;; refresh re-transmit (issue #36).
+    (let ((term (and (frame-live-p frame) (frame-terminal frame))))
+      (when (and term (terminal-live-p term))
+        (set-terminal-parameter term 'kitty-graphics-cell-w nil)
+        (set-terminal-parameter term 'kitty-graphics-cell-h nil)
+        (when (kitty-graphics--frame-resized-p frame)
+          (kitty-graphics--forget-terminal-transmits term))))
+    ;; Clear stale per-window records on any mpv overlay so the next
+    ;; refresh recomputes coordinates against the new layout.  The mpv
+    ;; overlay is NEVER pushed onto `kitty-graphics--overlays' (mpv has no
+    ;; kitty placement ID), so the dolist below would not touch it; it
+    ;; lives only on the buffer-local `kitty-graphics--mpv-overlay'.
+    (dolist (buf (buffer-list))
+      (with-current-buffer buf
+        (when (and kitty-graphics--mpv-overlay
+                   (overlay-buffer kitty-graphics--mpv-overlay))
+          (overlay-put kitty-graphics--mpv-overlay 'kitty-graphics-placements nil))))
+    ;; Delete image placements before clearing their cached positions.
+    ;; Window splits/resizes can move an image from the middle of the old
+    ;; window to the center of the new pane(s).  A buffer can also be shown
+    ;; in multiple windows, and closing one of those windows leaves terminal
+    ;; pixels that no remaining window can discover from `posn-at-point'.
+    ;; Therefore image placements are tracked and deleted per window before
+    ;; the cache is reset.  Some terminals do not reliably erase an old
+    ;; direct placement when it is re-placed at a different geometry, and
+    ;; Sixel is stateless and must be explicitly overwritten.
+    ;;
+    ;; Heading multicell blocks are erased at their cached position here
+    ;; too: unlike a scroll (handled by `kitty-graphics--on-window-scroll',
+    ;; which preserves the cache for old→new comparison), a layout change
+    ;; can drop a popup/minibuffer window over the buffer, and Emacs will
+    ;; not repaint the cells the block occupies — so the stale glyphs would
+    ;; bleed into the popup unless we wipe them explicitly.
+    (kitty-graphics--sync-begin)
+    (unwind-protect
+        (progn
+          (kitty-graphics--heading-erase-all)
+          (dolist (buf (buffer-list))
+            (with-current-buffer buf
+              (dolist (ov kitty-graphics--overlays)
+                (when (and (overlay-buffer ov)
+                           (not (overlay-get ov 'kitty-graphics-heading)))
+                  (kitty-graphics--delete-image-placements ov))))))
+      (kitty-graphics--sync-end))
+    ;; Longer debounce: cancel any fast leading-edge cooldown and
+    ;; schedule a 0.1s delayed refresh to let window layout settle.
+    (when kitty-graphics--render-timer
+      (cancel-timer kitty-graphics--render-timer))
+    (setq kitty-graphics--refresh-pending nil
+          kitty-graphics--render-timer
+          (run-at-time 0.1 nil
+                       (lambda ()
+                         (setq kitty-graphics--render-timer nil
+                               kitty-graphics--force-redisplay t)
+                         (kitty-graphics--refresh))))))
 
 (defun kitty-graphics--any-visible-overlays-p ()
   "Return non-nil when any visible window's buffer holds kitty-graphics overlays.
