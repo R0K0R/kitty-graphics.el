@@ -7502,7 +7502,8 @@ PROC is the mpv process, EVENT describes the state change."
   (ignore-errors (send-string-to-terminal "\e[?25h" kitty-graphics--mpv-terminal))
   (setq kitty-graphics--mpv-terminal nil)
   (force-mode-line-update t)
-  (when (fboundp 'redraw-display) (redraw-display)))
+  (when (fboundp 'redraw-display) (redraw-display))
+  (kitty-graphics--replace-after-clear))
 
 (defun kitty-graphics--mpv-vo-args (vo col row width-px height-px video-cols video-rows)
   "Return the mpv argument list selecting and configuring video output VO.
@@ -7657,6 +7658,37 @@ Sixel backend (mpv built with libsixel)."
       (kitty-graphics--mpv-ipc-connect socket-path (current-buffer)))))
 
 (define-obsolete-function-alias 'kitty-gfx-play-video 'kitty-graphics-play-video "1.3.0")
+
+(defun kitty-graphics--replace-after-clear ()
+  "Re-send and re-place every image once the screen has been redrawn.
+The browser and mpv cleanups end with `redraw-display', which clears the
+terminal; with a stock terminfo that is ESC [ 2 J, and Kitty then drops
+every image on screen, data and placement both.  The images were still
+recorded as placed and nothing scheduled a refresh, so they stayed gone:
+a doc-view page vanished the moment a preview was replaced or closed.
+Once Emacs has repainted, the record of what each terminal holds is
+dropped (as for a resize, issue #36), doc-view pages are re-sent -- their
+refresh places without checking -- and a refresh places everything."
+  (run-at-time
+   0.05 nil
+   (lambda ()
+     ;; The clear happens in the repaint `redraw-display' asked for; anything
+     ;; sent before it would be wiped again.
+     (redisplay t)
+     (dolist (term (terminal-list))
+       (when (terminal-live-p term)
+         (kitty-graphics--forget-terminal-transmits term)))
+     (dolist (buf (buffer-list))
+       (dolist (ov (buffer-local-value 'kitty-graphics--overlays buf))
+         (when (overlay-buffer ov)
+           (overlay-put ov 'kitty-graphics-placements nil)
+           (let ((file (overlay-get ov 'kitty-graphics-file))
+                 (id (overlay-get ov 'kitty-graphics-id)))
+             (when (and (overlay-get ov 'kitty-graphics-doc-view)
+                        file id (file-exists-p file))
+               (ignore-errors
+                 (funcall (kitty-graphics--backend-fn 'prepare) file id)))))))
+     (kitty-graphics--schedule-refresh t))))
 
 (defun kitty-graphics--mpv-filter (proc chunk)
   "Forward mpv/casty stdout CHUNK to the terminal PROC was launched on.
@@ -8095,7 +8127,8 @@ Safe to call more than once."
   (ignore-errors (send-string-to-terminal "\e[?25h" kitty-graphics--browser-terminal))
   (setq kitty-graphics--browser-terminal nil)
   (force-mode-line-update t)
-  (when (fboundp 'redraw-display) (redraw-display)))
+  (when (fboundp 'redraw-display) (redraw-display))
+  (kitty-graphics--replace-after-clear))
 
 (defun kitty-graphics--stop-all-browsers ()
   "Tear down every live casty browser session across all buffers."
