@@ -3499,7 +3499,13 @@ Output is routed per window to that window's terminal and wrapped in a
 per-terminal synchronized-output pair (BSU/ESU) to prevent flicker, so
 several daemon clients on different ttys render correctly at once."
   (when (and kitty-graphics-mode
-             (kitty-graphics--any-visible-overlays-p)
+             (or (kitty-graphics--any-visible-overlays-p)
+                 ;; The browser and mpv overlays are not on
+                 ;; `kitty-graphics--overlays', and hiding them is this
+                 ;; refresh's job too: once their window is gone -- deleted,
+                 ;; or swapped out with a workspace -- nothing else may be
+                 ;; visible, and they would go on painting where it was.
+                 (kitty-graphics--live-embeds-p))
              (not (kitty-graphics--refresh-inhibited-p)))
     ;; Force redisplay only when a caller flagged that display properties
     ;; were just mutated (overlay creation, window/buffer-change handlers)
@@ -4115,6 +4121,14 @@ scheduling timers in unrelated buffers — issue #19."
          (throw 'found t)))
      nil 'visible)
     nil))
+
+(defun kitty-graphics--live-embeds-p ()
+  "Return non-nil when any buffer has a browser or mpv overlay.
+Visible or not: a hidden one still needs the refresh that hides it."
+  (seq-some (lambda (buf)
+              (or (buffer-local-value 'kitty-graphics--browser-overlay buf)
+                  (buffer-local-value 'kitty-graphics--mpv-overlay buf)))
+            (buffer-list)))
 
 (defun kitty-graphics--window-signature (win)
   "Return a cheap signature of WIN's displayed content.
