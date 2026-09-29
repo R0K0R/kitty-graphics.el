@@ -6621,6 +6621,23 @@ SVG when `doc-view-mupdf-use-svg' is in effect)."
         (goto-char (point-min)))
     (apply orig-fn file args)))
 
+(defun kitty-graphics--doc-view-buffer-message-advice (orig-fn &rest args)
+  "Around advice for `doc-view-buffer-message'.
+doc-view shows a \"Welcome to DocView!\" placeholder on its page overlay
+until the first page is converted.
+`kitty-graphics--doc-view-insert-image-advice' clears it when it draws a
+page, but doc-view puts it back whenever it
+re-displays with the placeholder empty -- a reconversion at a higher
+resolution, for one -- and the page drawn over it is then kept without
+clearing it again.  It sat in the page's cells: in the strip beside a
+centered page, and on top of a page drawn below text.  Once a page is
+shown here, it is not put back."
+  (unless (and kitty-graphics-mode
+               (not (display-graphic-p))
+               kitty-graphics--doc-view-overlay
+               (overlay-buffer kitty-graphics--doc-view-overlay))
+    (apply orig-fn args)))
+
 (defun kitty-graphics--doc-view-enlarge-advice (orig-fn factor)
   "Around advice for `doc-view-enlarge'.
 Updates `kitty-graphics--doc-view-scale' and re-renders the page in place.
@@ -8276,6 +8293,8 @@ translated to casty IPC commands."
                 #'kitty-graphics--doc-view-mode-p-advice)
     (advice-add 'doc-view-insert-image :around
                 #'kitty-graphics--doc-view-insert-image-advice)
+    (advice-add 'doc-view-buffer-message :around
+                #'kitty-graphics--doc-view-buffer-message-advice)
     (advice-add 'doc-view-enlarge :around
                 #'kitty-graphics--doc-view-enlarge-advice)
     (advice-add 'doc-view-scale-reset :around
@@ -8342,6 +8361,7 @@ translated to casty IPC commands."
   (advice-remove 'clear-image-cache #'kitty-graphics--clear-image-cache-advice)
   (advice-remove 'doc-view-mode-p #'kitty-graphics--doc-view-mode-p-advice)
   (advice-remove 'doc-view-insert-image #'kitty-graphics--doc-view-insert-image-advice)
+  (advice-remove 'doc-view-buffer-message #'kitty-graphics--doc-view-buffer-message-advice)
   (advice-remove 'doc-view-enlarge #'kitty-graphics--doc-view-enlarge-advice)
   (advice-remove 'doc-view-scale-reset #'kitty-graphics--doc-view-scale-reset-advice)
   (advice-remove 'image-forward-hscroll #'kitty-graphics--doc-view-image-forward-hscroll-advice)
