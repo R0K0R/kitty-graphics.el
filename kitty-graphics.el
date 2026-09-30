@@ -361,30 +361,23 @@ which has a background of its own, covers it."
 (defvar-local kitty-graphics--default-background-cookie nil
   "Face remapping made by `kitty-graphics--use-terminal-background'.")
 
-(defface kitty-graphics-no-highlight '((t))
-  "Face with no attributes, for highlights that must not show over an image."
-  :group 'kitty-graphics)
-
 (defun kitty-graphics--use-terminal-background ()
   "Draw the current buffer on the terminal's default background.
 Only with `kitty-graphics-draw-below-popups', in a terminal frame.
-The current-line highlight is made invisible too: it has a background
-of its own, so it would be drawn over the image, a band across the
-page.  Turning `hl-line-mode' off is not enough -- configurations turn
-it on from mode hooks or a globalized mode after this runs (Doom's
-`global-hl-line-mode' covers `special-mode', and so the browser) -- so
-its face is replaced here instead, which holds whoever turns it on."
+The current-line highlight is drawn on it too: with a background of its
+own it would show over the image, a band across the page -- over the
+line point was left on, in a window that need not even be selected.
+Emacs 31's `global-hl-line-mode' draws it with the faces `hl-line' and
+`hl-line-nonselected' directly, whatever `hl-line-face' says, and
+configurations turn it on after this runs, so the faces are remapped
+here, which holds for every way it is drawn."
   (when (and kitty-graphics-draw-below-popups
              (not (display-graphic-p))
              (not kitty-graphics--default-background-cookie))
     (setq kitty-graphics--default-background-cookie
           (face-remap-add-relative 'default :background "unspecified-bg"))
-    (setq-local hl-line-face 'kitty-graphics-no-highlight)
-    ;; Overlays made before this -- `hl-line-mode''s, and the buffer's own
-    ;; for `global-hl-line-mode' -- keep the face they were made with.
-    (dolist (var '(hl-line-overlay global-hl-line-overlay))
-      (when (and (boundp var) (overlayp (symbol-value var)))
-        (overlay-put (symbol-value var) 'face 'kitty-graphics-no-highlight)))))
+    (dolist (face '(hl-line hl-line-nonselected))
+      (face-remap-add-relative face :background "unspecified-bg"))))
 
 (defcustom kitty-graphics-browser-max-width 200
   "Maximum width in columns for the inline browser frame."
@@ -8481,7 +8474,7 @@ translated to casty IPC commands."
   ;; Mirror the bindings into evil normal/motion state so evil's defaults
   ;; (j/k motions, etc.) do not shadow them -- same pattern as image-mode.
   (when (and kitty-graphics-browser-evil-bindings (fboundp 'evil-local-set-key))
-    (dolist (state '(normal motion))
+    (dolist (state '(normal motion visual))
       (evil-local-set-key state "j" #'kitty-graphics-browser-scroll-down)
       (evil-local-set-key state "k" #'kitty-graphics-browser-scroll-up)
       (evil-local-set-key state (kbd "C-f") #'kitty-graphics-browser-page-down)
@@ -8493,6 +8486,16 @@ translated to casty IPC commands."
       (evil-local-set-key state (kbd ":") #'kitty-graphics-browser-open-url)
       (evil-local-set-key state "f" #'kitty-graphics-browser-hints)
       (evil-local-set-key state [mouse-1] #'kitty-graphics-browser-click)
+      (evil-local-set-key state "=" #'kitty-graphics-browser-fit)
+      (evil-local-set-key state "R" #'kitty-graphics-browser-restart)
+      ;; The rest of the first button, as in the keymap: evil's own press
+      ;; binding (`evil-mouse-drag-region') moved point, entered visual state
+      ;; and selected -- a highlight drawn over the page.
+      (evil-local-set-key state [double-mouse-1] #'kitty-graphics-browser-click)
+      (evil-local-set-key state [triple-mouse-1] #'kitty-graphics-browser-click)
+      (dolist (ev '(down-mouse-1 double-down-mouse-1 triple-down-mouse-1
+                    drag-mouse-1 double-drag-mouse-1 triple-drag-mouse-1))
+        (evil-local-set-key state (vector ev) #'ignore))
       (evil-local-set-key state "q" #'kitty-graphics-browser-quit))))
 
 (define-obsolete-function-alias 'kitty-gfx-browser-mode 'kitty-graphics-browser-mode "1.3.0")
