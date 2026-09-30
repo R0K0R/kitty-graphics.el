@@ -7848,6 +7848,16 @@ whichever buffer currently owns a live mpv process."
 
 ;;;; casty browser integration
 
+(defun kitty-graphics--casty-executable ()
+  "The casty program, looked up on Emacs's own `exec-path'.
+Not the current buffer's: envrc and similar set a buffer-local
+`exec-path' from a project's dev shell, which need not include casty --
+it is installed for Emacs, not for the project -- and the check ran in
+the buffer that asked for the preview.  So a direnv project's preview
+found no casty and fell back to a GUI browser, in a terminal."
+  (let ((exec-path (default-value 'exec-path)))
+    (executable-find kitty-graphics-casty-program)))
+
 (defun kitty-graphics--browser-available-p ()
   "Return non-nil if the inline casty browser is available.
 Unavailable inside tmux: casty's raw Kitty frame stream is forwarded
@@ -7858,7 +7868,7 @@ every frame."
        (not (display-graphic-p))
        (not (kitty-graphics--frame-getenv "TMUX"))
        (eq kitty-graphics--active-backend 'kitty)
-       (executable-find kitty-graphics-casty-program)))
+       (kitty-graphics--casty-executable)))
 
 (defun kitty-graphics--browser-unavailable-reason ()
   "Return a user-facing string explaining why the browser is unavailable."
@@ -7873,7 +7883,7 @@ every frame."
     "running inside tmux (casty's raw frame stream bypasses the tmux passthrough wrapper)")
    ((not (eq kitty-graphics--active-backend 'kitty))
     "Kitty backend not active")
-   ((not (executable-find kitty-graphics-casty-program))
+   ((not (kitty-graphics--casty-executable))
     (format "casty program %S not found on PATH" kitty-graphics-casty-program))))
 
 (defun kitty-graphics--browser-send (plist)
@@ -8179,6 +8189,12 @@ Requires `kitty-graphics-enable-browser' to be non-nil and casty installed."
   (unless (kitty-graphics--browser-available-p)
     (user-error "casty browser unavailable: %s" (kitty-graphics--browser-unavailable-reason)))
   (let ((buf (get-buffer-create "*kitty-browser*")))
+    ;; Not the directory of whichever buffer asked: in a project with a
+    ;; direnv dev shell, envrc would load it for this buffer too (a third
+    ;; of a second, or a whole Nix evaluation when its cache is stale) for
+    ;; nothing -- casty is Emacs's, see `kitty-graphics--casty-executable'.
+    (with-current-buffer buf
+      (setq default-directory (expand-file-name "~/")))
     (switch-to-buffer buf)
     (unless (eq major-mode 'kitty-graphics-browser-mode)
       (kitty-graphics-browser-mode))
@@ -8241,7 +8257,7 @@ Requires `kitty-graphics-enable-browser' to be non-nil and casty installed."
                     ;; painted as garbage; route it to a debug buffer instead.
                     :stderr (get-buffer-create "*kitty-casty-log*")
                     :command
-                    (list kitty-graphics-casty-program "--embed"
+                    (list (or (kitty-graphics--casty-executable) kitty-graphics-casty-program) "--embed"
                           "--ipc" socket
                           "--image-id" (number-to-string id)
                           "--cols" (number-to-string cols)
