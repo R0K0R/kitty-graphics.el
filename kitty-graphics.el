@@ -1333,6 +1333,41 @@ EVENTS, instead of leaking into the reader or being dropped."
       (setq start (match-end 0)))
     (nreverse cols)))
 
+(defvar kitty-graphics--probe-deferred-since nil
+  "When a terminal probe was first postponed for Emacs's own query, or nil.")
+
+(defun kitty-graphics--defer-probe-p (what)
+  "Non-nil when the terminal probe WHAT must wait, and a retry is scheduled.
+The probes read the terminal with `read-event', directly, from a timer.
+Two things can be in the middle of reading it then:
+
+- The command loop, part-way through a key sequence: at start-up
+  term/xterm.el asks for the device attributes without waiting and has
+  the command loop decode the answer, so its ESC could already be read
+  when a probe ran.  The probe then took the rest of the answer, the
+  command loop was left holding the ESC -- Emacs started with ESC- as a
+  pending prefix -- and the stray text was pushed back as typed input.
+- Emacs's own query, whose answer handler is registered on the answer's
+  prefix in `input-decode-map' until it arrives.
+
+Either way the probe waits for a later refresh, scheduled here.  Emacs's
+query is waited for at most three seconds, so a terminal that never
+answers it cannot hold the probes off."
+  (let ((mid-sequence (> (length (this-command-keys-vector)) 0))
+        (emacs-query (seq-some (lambda (prefix)
+                                 (functionp (lookup-key input-decode-map prefix)))
+                               '("\e[?" "\e[>" "\e]10;" "\e]11;"))))
+    (when emacs-query
+      (unless kitty-graphics--probe-deferred-since
+        (setq kitty-graphics--probe-deferred-since (float-time))))
+    (when (or mid-sequence
+              (and emacs-query
+                   (< (- (float-time) kitty-graphics--probe-deferred-since) 3.0)))
+      (kitty-graphics--log "%s: deferred (%s)" what
+                           (if mid-sequence "mid key sequence" "Emacs awaits a terminal reply"))
+      (run-at-time 0.3 nil #'kitty-graphics--schedule-refresh t)
+      t)))
+
 (defun kitty-graphics--query-cell-size ()
   "Query terminal for cell size in pixels using CSI 16 t (XTWINOPS).
 The terminal responds with CSI 6 ; HEIGHT ; WIDTH t.
@@ -1344,7 +1379,8 @@ keystrokes consumed while waiting are pushed back onto
   ;; Guard on the per-terminal parameter, not the global, so every client
   ;; terminal queries its own cell size exactly once even when another
   ;; terminal already populated the global default.
-  (unless (terminal-parameter nil 'kitty-graphics-cell-w)
+  (unless (or (terminal-parameter nil 'kitty-graphics-cell-w)
+              (kitty-graphics--defer-probe-p "cell-size query"))
     (let ((w nil) (h nil)
           (reply-re "\e\\[6;\\([0-9]+\\);\\([0-9]+\\)t"))
       (condition-case nil
@@ -1401,77 +1437,80 @@ Uses DSR (device status report) as a sentinel to avoid hanging.
 The read completes only on a full match of the DSR reply, so user
 keystrokes cannot end it early; keystrokes consumed while waiting
 are pushed back onto `unread-command-events'."
-  (if (terminal-parameter nil 'kitty-graphics-text-sizing)
-      ;; Already detected for this terminal — reuse the cached result
-      (progn
-        (setq kitty-graphics--text-sizing-support
-              (terminal-parameter nil 'kitty-graphics-text-sizing))
-        (kitty-graphics--log "text-sizing: cached result=%s"
-                        kitty-graphics--text-sizing-support))
-    (condition-case err
-        (let ((response "")
-              (extra nil)
-              (done nil)
-              (deadline (+ (float-time) 1.0)))
-          ;; Save cursor, CR to column 1, then interleaved CPR + OSC 66
-          ;; tests, DSR sentinel, erase line, restore cursor.
-          (send-string-to-terminal
-           (concat "\e7\r\e[6n"                 ; save + CR + CPR1
-                   "\e]66;w=2; \a\e[6n"         ; width test + CPR2
-                   "\e]66;s=2; \a\e[6n"         ; scale test + CPR3
-                   "\e[5n"                       ; DSR sentinel
-                   "\e[2K\e8"))                  ; erase line + restore
-          ;; Read until the full DSR reply (ESC [ 0 n) or timeout
-          (while (and (not done) (< (float-time) deadline))
-            (let ((ch (read-event nil nil 0.1)))
-              (if ch
-                  (progn
-                    (if (characterp ch)
-                        (setq response (concat response (string ch)))
-                      (push ch extra))
-                    (when (string-match-p "\e\\[0n" response)
-                      (setq done t)))
-                ;; No input — check if we have enough responses
-                (when (>= (length (kitty-graphics--cpr-columns response)) 3)
-                  (setq done t)))))
-          ;; Parse three CPR responses: ESC [ row ; col R
-          (let ((cols (kitty-graphics--cpr-columns response)))
-            (if (>= (length cols) 3)
-                (let ((x1 (nth 0 cols))
-                      (x2 (nth 1 cols))
-                      (x3 (nth 2 cols)))
-                  (kitty-graphics--log "text-sizing: CPR cols x1=%d x2=%d x3=%d"
-                                   x1 x2 x3)
-                  (cond
-                   ((and (eql x2 (+ x1 2)) (eql x3 (+ x2 2)))
-                    (setq kitty-graphics--text-sizing-support 'scale)
-                    (kitty-graphics--log "text-sizing: full support (scale)"))
-                   ((eql x2 (+ x1 2))
-                    (setq kitty-graphics--text-sizing-support 'width)
-                    (kitty-graphics--log "text-sizing: width-only support"))
-                   (t
-                    (setq kitty-graphics--text-sizing-support 'none)
-                    (kitty-graphics--log "text-sizing: no support"))))
-              (kitty-graphics--log "text-sizing: parse failed (got %d CPRs) raw=%S"
-                               (length cols) response)
-              (setq kitty-graphics--text-sizing-support 'none)))
-          ;; Flush any remaining terminal responses
-          (let ((flush-deadline (+ (float-time) 0.1)))
-            (while (< (float-time) flush-deadline)
-              (let ((ch (read-event nil nil 0.02)))
+  (if (and (not (terminal-parameter nil 'kitty-graphics-text-sizing))
+           (kitty-graphics--defer-probe-p "text-sizing"))
+      kitty-graphics--text-sizing-support
+    (if (terminal-parameter nil 'kitty-graphics-text-sizing)
+        ;; Already detected for this terminal — reuse the cached result
+        (progn
+          (setq kitty-graphics--text-sizing-support
+                (terminal-parameter nil 'kitty-graphics-text-sizing))
+          (kitty-graphics--log "text-sizing: cached result=%s"
+                               kitty-graphics--text-sizing-support))
+      (condition-case err
+          (let ((response "")
+                (extra nil)
+                (done nil)
+                (deadline (+ (float-time) 1.0)))
+            ;; Save cursor, CR to column 1, then interleaved CPR + OSC 66
+            ;; tests, DSR sentinel, erase line, restore cursor.
+            (send-string-to-terminal
+             (concat "\e7\r\e[6n"                 ; save + CR + CPR1
+                     "\e]66;w=2; \a\e[6n"         ; width test + CPR2
+                     "\e]66;s=2; \a\e[6n"         ; scale test + CPR3
+                     "\e[5n"                       ; DSR sentinel
+                     "\e[2K\e8"))                  ; erase line + restore
+            ;; Read until the full DSR reply (ESC [ 0 n) or timeout
+            (while (and (not done) (< (float-time) deadline))
+              (let ((ch (read-event nil nil 0.1)))
                 (if ch
-                    (if (characterp ch)
-                        (setq response (concat response (string ch)))
-                      (push ch extra))
-                  (setq flush-deadline 0)))))
-          (kitty-graphics--unread-non-reply
-           response '("\e\\[[0-9]+;[0-9]+R" "\e\\[0n") (nreverse extra)))
-      (error
-       (kitty-graphics--log "text-sizing: query error: %s"
-                        (error-message-string err))
-       (setq kitty-graphics--text-sizing-support 'none))))
-  (set-terminal-parameter nil 'kitty-graphics-text-sizing kitty-graphics--text-sizing-support)
-  kitty-graphics--text-sizing-support)
+                    (progn
+                      (if (characterp ch)
+                          (setq response (concat response (string ch)))
+                        (push ch extra))
+                      (when (string-match-p "\e\\[0n" response)
+                        (setq done t)))
+                  ;; No input — check if we have enough responses
+                  (when (>= (length (kitty-graphics--cpr-columns response)) 3)
+                    (setq done t)))))
+            ;; Parse three CPR responses: ESC [ row ; col R
+            (let ((cols (kitty-graphics--cpr-columns response)))
+              (if (>= (length cols) 3)
+                  (let ((x1 (nth 0 cols))
+                        (x2 (nth 1 cols))
+                        (x3 (nth 2 cols)))
+                    (kitty-graphics--log "text-sizing: CPR cols x1=%d x2=%d x3=%d"
+                                         x1 x2 x3)
+                    (cond
+                     ((and (eql x2 (+ x1 2)) (eql x3 (+ x2 2)))
+                      (setq kitty-graphics--text-sizing-support 'scale)
+                      (kitty-graphics--log "text-sizing: full support (scale)"))
+                     ((eql x2 (+ x1 2))
+                      (setq kitty-graphics--text-sizing-support 'width)
+                      (kitty-graphics--log "text-sizing: width-only support"))
+                     (t
+                      (setq kitty-graphics--text-sizing-support 'none)
+                      (kitty-graphics--log "text-sizing: no support"))))
+                (kitty-graphics--log "text-sizing: parse failed (got %d CPRs) raw=%S"
+                                     (length cols) response)
+                (setq kitty-graphics--text-sizing-support 'none)))
+            ;; Flush any remaining terminal responses
+            (let ((flush-deadline (+ (float-time) 0.1)))
+              (while (< (float-time) flush-deadline)
+                (let ((ch (read-event nil nil 0.02)))
+                  (if ch
+                      (if (characterp ch)
+                          (setq response (concat response (string ch)))
+                        (push ch extra))
+                    (setq flush-deadline 0)))))
+            (kitty-graphics--unread-non-reply
+             response '("\e\\[[0-9]+;[0-9]+R" "\e\\[0n") (nreverse extra)))
+        (error
+         (kitty-graphics--log "text-sizing: query error: %s"
+                              (error-message-string err))
+         (setq kitty-graphics--text-sizing-support 'none))))
+    (set-terminal-parameter nil 'kitty-graphics-text-sizing kitty-graphics--text-sizing-support)
+    kitty-graphics--text-sizing-support))
 
 ;;;; Synchronized output
 
