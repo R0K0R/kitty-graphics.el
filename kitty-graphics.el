@@ -8288,6 +8288,21 @@ Requires `kitty-graphics-enable-browser' to be non-nil and casty installed."
 
 (define-obsolete-function-alias 'kitty-gfx-browser-scroll-down 'kitty-graphics-browser-scroll-down "1.3.0")
 
+(defun kitty-graphics-browser-wheel-down (event)
+  "Scroll the page under the mouse down, for wheel EVENT.
+In the wheel's window, which need not be the selected one, without
+selecting it -- as the wheel scrolls any other window."
+  (interactive "e")
+  (with-current-buffer (window-buffer (posn-window (event-start event)))
+    (kitty-graphics-browser-scroll-down)))
+
+(defun kitty-graphics-browser-wheel-up (event)
+  "Scroll the page under the mouse up, for wheel EVENT.
+See `kitty-graphics-browser-wheel-down'."
+  (interactive "e")
+  (with-current-buffer (window-buffer (posn-window (event-start event)))
+    (kitty-graphics-browser-scroll-up)))
+
 (defun kitty-graphics-browser-scroll-up ()
   "Scroll the browser page up."
   (interactive)
@@ -8422,6 +8437,15 @@ Clicks past the rendered grid (the 1-cell margin that `compute-geometry'
 leaves, or any over-wide window) fall outside casty's viewport and would
 be no-ops, so they are dropped rather than sent."
   (interactive "e")
+  ;; A click in a window that is not selected is looked up in that window's
+  ;; buffer, but its command runs in the selected window's -- where the
+  ;; browser's connection and grid, both buffer-local, do not exist, so the
+  ;; click went nowhere.  Select the clicked window (focus follows the
+  ;; click, as for any other window) and work in its buffer.
+  (let ((win (posn-window (event-start event))))
+    (when (window-live-p win)
+      (select-window win)
+      (set-buffer (window-buffer win))))
   (let* ((cr (posn-col-row (event-start event)))
          (col (1+ (car cr)))
          (row (1+ (cdr cr)))
@@ -8445,10 +8469,10 @@ be no-ops, so they are dropped rather than sent."
     (define-key map (kbd "C-f") #'kitty-graphics-browser-page-down)
     (define-key map (kbd "C-b") #'kitty-graphics-browser-page-up)
     ;; Mouse wheel → scroll the page instead of the Emacs window.
-    (define-key map [wheel-down] #'kitty-graphics-browser-scroll-down)
-    (define-key map [wheel-up]   #'kitty-graphics-browser-scroll-up)
-    (define-key map [mouse-5]    #'kitty-graphics-browser-scroll-down)
-    (define-key map [mouse-4]    #'kitty-graphics-browser-scroll-up)
+    (define-key map [wheel-down] #'kitty-graphics-browser-wheel-down)
+    (define-key map [wheel-up]   #'kitty-graphics-browser-wheel-up)
+    (define-key map [mouse-5]    #'kitty-graphics-browser-wheel-down)
+    (define-key map [mouse-4]    #'kitty-graphics-browser-wheel-up)
     (define-key map "H"       #'kitty-graphics-browser-back)
     (define-key map "L"       #'kitty-graphics-browser-forward)
     (define-key map "r"       #'kitty-graphics-browser-reload)
