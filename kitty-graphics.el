@@ -361,14 +361,30 @@ which has a background of its own, covers it."
 (defvar-local kitty-graphics--default-background-cookie nil
   "Face remapping made by `kitty-graphics--use-terminal-background'.")
 
+(defface kitty-graphics-no-highlight '((t))
+  "Face with no attributes, for highlights that must not show over an image."
+  :group 'kitty-graphics)
+
 (defun kitty-graphics--use-terminal-background ()
   "Draw the current buffer on the terminal's default background.
-Only with `kitty-graphics-draw-below-popups', in a terminal frame."
+Only with `kitty-graphics-draw-below-popups', in a terminal frame.
+The current-line highlight is made invisible too: it has a background
+of its own, so it would be drawn over the image, a band across the
+page.  Turning `hl-line-mode' off is not enough -- configurations turn
+it on from mode hooks or a globalized mode after this runs (Doom's
+`global-hl-line-mode' covers `special-mode', and so the browser) -- so
+its face is replaced here instead, which holds whoever turns it on."
   (when (and kitty-graphics-draw-below-popups
              (not (display-graphic-p))
              (not kitty-graphics--default-background-cookie))
     (setq kitty-graphics--default-background-cookie
-          (face-remap-add-relative 'default :background "unspecified-bg"))))
+          (face-remap-add-relative 'default :background "unspecified-bg"))
+    (setq-local hl-line-face 'kitty-graphics-no-highlight)
+    ;; Overlays made before this -- `hl-line-mode''s, and the buffer's own
+    ;; for `global-hl-line-mode' -- keep the face they were made with.
+    (dolist (var '(hl-line-overlay global-hl-line-overlay))
+      (when (and (boundp var) (overlayp (symbol-value var)))
+        (overlay-put (symbol-value var) 'face 'kitty-graphics-no-highlight)))))
 
 (defcustom kitty-graphics-browser-max-width 200
   "Maximum width in columns for the inline browser frame."
@@ -8433,6 +8449,14 @@ be no-ops, so they are dropped rather than sent."
     (define-key map (kbd ":") #'kitty-graphics-browser-open-url)
     (define-key map "f"       #'kitty-graphics-browser-hints)
     (define-key map [mouse-1] #'kitty-graphics-browser-click)
+    ;; Every other first-button event would select the buffer's blank text
+    ;; -- a highlight drawn over the page -- instead of reaching the page:
+    ;; a double or triple click is a click there, a press or drag nothing.
+    (define-key map [double-mouse-1] #'kitty-graphics-browser-click)
+    (define-key map [triple-mouse-1] #'kitty-graphics-browser-click)
+    (dolist (ev '(down-mouse-1 double-down-mouse-1 triple-down-mouse-1
+                  drag-mouse-1 double-drag-mouse-1 triple-drag-mouse-1))
+      (define-key map (vector ev) #'ignore))
     (define-key map "q"       #'kitty-graphics-browser-quit)
     map)
   "Keymap for `kitty-graphics-browser-mode'.")
